@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0"
+  xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx"
+  xmlns="http://docs.oasis-open.org/odata/ns/edm">
+  <edmx:DataServices>
+    <Schema Namespace="localAnnotations">
+<!--
+      <Annotations Target="cds_zcdp_open_deliv_srv.OpenDeliverySetType/DeliveryNumber">
+        <Annotation Term="com.sap.vocabularies.Common.v1.SemanticObject" String="custdel"/>
+         <Annotation Term="com.sap.vocabularies.Common.v1.SemanticObjectUnavailableActions">
+          <Collection>
+            <String>clickcollect</String>
+            <String>orders</String>
+            <String>orderret</String>
+            <String>orderdon</String>
+            <String>create</String>
+            <String>manage</String>
+            <String>picking</String>
+            <String>packing</String>
+            <String>display</String>
+          </Collection>
+        </Annotation>
+      </Annotations>
+-->
+      <Annotations Target="cds_zcdp_open_deliv_srv.OpenDeliverySetType">
+
+        <Annotation Term="com.sap.vocabularies.UI.v1.Identification" Qualifier="deliveryNav">
+          <Collection>
+            <Record Type="com.sap.vocabularies.UI.v1.DataFieldForIntentBasedNavigation">
+              <PropertyValue Property="SemanticObject" String="custdel"/>
+              <PropertyValue Property="Action"         String="manage"/>
+              <PropertyValue Property="Label"          String="Open Delivery"/>
+            </Record>
+          </Collection>
+        </Annotation>
+
+        <Annotation Term="com.sap.vocabularies.UI.v1.SelectionVariant" Qualifier="Breached">
+          <Record>
+            <PropertyValue Property="SelectOptions">
+              <Collection>
+                <Record Type="com.sap.vocabularies.UI.v1.SelectOptionType">
+                  <PropertyValue Property="PropertyName" PropertyPath="RiskBucket"/>
+                  <PropertyValue Property="Ranges">
+                    <Collection>
+                      <Record Type="com.sap.vocabularies.UI.v1.SelectionRangeType">
+                        <PropertyValue Property="Sign"
+                          EnumMember="com.sap.vocabularies.UI.v1.SelectionRangeSignType/I"/>
+                        <PropertyValue Property="Option"
+                          EnumMember="com.sap.vocabularies.UI.v1.SelectionRangeOptionType/EQ"/>
+                        <PropertyValue Property="Low" String="BREACHED"/>
+                      </Record>
+                    </Collection>
+                  </PropertyValue>
+                </Record>
+              </Collection>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+
+        <Annotation Term="com.sap.vocabularies.UI.v1.SelectionVariant" Qualifier="AtRisk">
+          <Record>
+            <PropertyValue Property="SelectOptions">
+              <Collection>
+                <Record Type="com.sap.vocabularies.UI.v1.SelectOptionType">
+                  <PropertyValue Property="PropertyName" PropertyPath="RiskBucket"/>
+                  <PropertyValue Property="Ranges">
+                    <Collection>
+                      <Record Type="com.sap.vocabularies.UI.v1.SelectionRangeType">
+                        <PropertyValue Property="Sign"
+                          EnumMember="com.sap.vocabularies.UI.v1.SelectionRangeSignType/I"/>
+                        <PropertyValue Property="Option"
+                          EnumMember="com.sap.vocabularies.UI.v1.SelectionRangeOptionType/EQ"/>
+                        <PropertyValue Property="Low" String="ATRISK"/>
+                      </Record>
+                    </Collection>
+                  </PropertyValue>
+                </Record>
+              </Collection>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+
+        <Annotation Term="com.sap.vocabularies.UI.v1.SelectionVariant" Qualifier="DueNextHour">
+          <Record>
+            <PropertyValue Property="SelectOptions">
+              <Collection>
+                <Record Type="com.sap.vocabularies.UI.v1.SelectOptionType">
+                  <PropertyValue Property="PropertyName" PropertyPath="RiskBucket"/>
+                  <PropertyValue Property="Ranges">
+                    <Collection>
+                      <Record Type="com.sap.vocabularies.UI.v1.SelectionRangeType">
+                        <PropertyValue Property="Sign"
+                          EnumMember="com.sap.vocabularies.UI.v1.SelectionRangeSignType/I"/>
+                        <PropertyValue Property="Option"
+                          EnumMember="com.sap.vocabularies.UI.v1.SelectionRangeOptionType/EQ"/>
+                        <PropertyValue Property="Low" String="DUENEXTHOUR"/>
+                      </Record>
+                    </Collection>
+                  </PropertyValue>
+                </Record>
+              </Collection>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+
+        <Annotation Term="com.sap.vocabularies.UI.v1.SelectionVariant" Qualifier="ToDo">
+          <Record>
+            <PropertyValue Property="SelectOptions">
+              <Collection>
+                <Record Type="com.sap.vocabularies.UI.v1.SelectOptionType">
+                  <PropertyValue Property="PropertyName" PropertyPath="RiskBucket"/>
+                  <PropertyValue Property="Ranges">
+                    <Collection>
+                      <Record Type="com.sap.vocabularies.UI.v1.SelectionRangeType">
+                        <PropertyValue Property="Sign"
+                          EnumMember="com.sap.vocabularies.UI.v1.SelectionRangeSignType/I"/>
+                        <PropertyValue Property="Option"
+                          EnumMember="com.sap.vocabularies.UI.v1.SelectionRangeOptionType/EQ"/>
+                        <PropertyValue Property="Low" String="TODO"/>
+                      </Record>
+                    </Collection>
+                  </PropertyValue>
+                </Record>
+              </Collection>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+
+      </Annotations>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

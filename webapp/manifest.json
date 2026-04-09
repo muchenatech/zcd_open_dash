@@ -1,0 +1,216 @@
+{
+	"_version": "1.17.0",
+	"sap.app": {
+		"id": "coza.dischem.zcdpopendash",
+		"type": "application",
+		"i18n": "i18n/i18n.properties",
+		"applicationVersion": {
+			"version": "0.0.1"
+		},
+		"title": "{{appTitle}}",
+		"description": "{{appDescription}}",
+		"resources": "resources.json",
+		"sourceTemplate": {
+			"id": "@sap/generator-fiori:ovp",
+			"version": "1.21.0",
+			"toolsId": "856e8f22-bd99-4678-bd16-11065ca77588"
+		},
+		"dataSources": {
+			"ZCDP_OPEN_DELIV_SRV_VAN": {
+				"uri": "/sap/opu/odata/IWFND/CATALOGSERVICE;v=2/Annotations(TechnicalName='ZCDP_OPEN_DELIV_SRV_VAN',Version='0001')/$value/",
+				"type": "ODataAnnotation",
+				"settings": {
+					"localUri": "localService/mainService/ZCDP_OPEN_DELIV_SRV_VAN.xml"
+				}
+			},
+			"annotation": {
+				"type": "ODataAnnotation",
+				"uri": "annotations/annotation.xml",
+				"settings": {
+					"localUri": "annotations/annotation.xml"
+				}
+			},
+			"mainService": {
+				"uri": "/sap/opu/odata/sap/ZCDP_OPEN_DELIV_SRV/",
+				"type": "OData",
+				"settings": {
+					"annotations": [
+						"ZCDP_OPEN_DELIV_SRV_VAN",
+						"annotation"
+					],
+					"localUri": "localService/mainService/metadata.xml",
+					"odataVersion": "2.0"
+				}
+			}
+		}
+	},
+	"sap.ui": {
+		"technology": "UI5",
+		"icons": {
+			"icon": "",
+			"favIcon": "",
+			"phone": "",
+			"phone@2": "",
+			"tablet": "",
+			"tablet@2": ""
+		},
+		"deviceTypes": {
+			"desktop": true,
+			"tablet": true,
+			"phone": true
+		}
+	},
+	"sap.ui5": {
+		"flexEnabled": true,
+		"dependencies": {
+			"minUI5Version": "1.71.77",
+			"libs": {
+				"sap.m": {},
+				"sap.ui.core": {},
+				"sap.ushell": {},
+				"sap.f": {},
+				"sap.ui.comp": {},
+				"sap.ui.generic.app": {},
+				"sap.suite.ui.generic.template": {},
+				"sap.ovp": {},
+				"sap.ui.rta": {},
+				"sap.ui.layout": {}
+			}
+		},
+		"contentDensities": {
+			"compact": true,
+			"cozy": true
+		},
+		"models": {
+			"i18n": {
+				"type": "sap.ui.model.resource.ResourceModel",
+				"settings": {
+					"bundleName": "coza.dischem.zcdpopendash.i18n.i18n"
+				}
+			},
+			"mainModel": {
+				"dataSource": "mainService",
+				"preload": true,
+				"settings": {
+					"defaultBindingMode": "TwoWay",
+					"defaultCountMode": "Inline",
+					"refreshAfterChange": false,
+					"metadataUrlParams": {
+						"sap-value-list": "none"
+					}
+				}
+			},
+			"@i18n": {
+				"type": "sap.ui.model.resource.ResourceModel",
+				"uri": "i18n/i18n.properties"
+			}
+		},
+		"resources": {
+			"css": []
+		},
+		"routing": {
+			"config": {},
+			"routes": [],
+			"targets": {}
+		},
+		"extends": {
+			"extensions": {
+				"sap.ui.controllerExtensions": {
+					"sap.ovp.app.Main": {
+						"controllerName": "coza.dischem.zcdpopendash.ext.controller.MainExtension"
+					}
+				}
+			}
+		},
+		"flexBundle": false
+	},
+	"sap.ovp": {
+		"globalFilterModel": "mainModel",
+		"globalFilterEntitySet": "OpenDeliverySet",
+		"containerLayout": "resizable",
+		"enableLiveFilter": false,
+		"considerAnalyticalParameters": false,
+		"showBasicSearch": true,
+		"cards": {
+			"cardBreached": {
+				"template": "sap.ovp.cards.table",
+				"settings": {
+					"title": "Breached",
+					"subTitle": "Action required now",
+					"entitySet": "OpenDeliverySet",
+					"listType": "condensed",
+					"sortBy": "DelWindowStart",
+					"sortOrder": "ascending",
+					"selectionAnnotationPath": "com.sap.vocabularies.UI.v1.SelectionVariant#Breached",
+					"annotationPath": "com.sap.vocabularies.UI.v1.LineItem#Breached",
+					"identificationAnnotationPath": "com.sap.vocabularies.UI.v1.Identification#deliveryNav",
+					"defaultSpan": {
+						"rows": 3,
+						"cols": 1
+					}
+				},
+				"model": "mainModel"
+			},
+			"cardAtRisk": {
+				"template": "sap.ovp.cards.table",
+				"settings": {
+					"title": "At Risk",
+					"entitySet": "OpenDeliverySet",
+					"listType": "condensed",
+					"sortBy": "DelWindowStart",
+					"sortOrder": "ascending",
+					"selectionAnnotationPath": "com.sap.vocabularies.UI.v1.SelectionVariant#AtRisk",
+					"annotationPath": "com.sap.vocabularies.UI.v1.LineItem#AtRisk",
+					"identificationAnnotationPath": "com.sap.vocabularies.UI.v1.Identification#deliveryNav",
+					"defaultSpan": {
+						"rows": 3,
+						"cols": 1
+					},
+					"autoLoad": "always"
+				},
+				"model": "mainModel"
+			},
+			"cardDueNextHour": {
+				"template": "sap.ovp.cards.table",
+				"settings": {
+					"title": "Due Next Hour",
+					"entitySet": "OpenDeliverySet",
+					"listType": "extended",
+					"sortBy": "DelWindowStart",
+					"sortOrder": "ascending",
+					"selectionAnnotationPath": "com.sap.vocabularies.UI.v1.SelectionVariant#DueNextHour",
+					"annotationPath": "com.sap.vocabularies.UI.v1.LineItem#DueNextHour",
+					"identificationAnnotationPath": "com.sap.vocabularies.UI.v1.Identification#deliveryNav",
+					"defaultSpan": {
+						"rows": 3,
+						"cols": 1
+					},
+					"autoLoad": "always"
+				},
+				"model": "mainModel"
+			},
+			"cardToDo": {
+				"template": "sap.ovp.cards.table",
+				"settings": {
+					"title": "To Do",
+					"entitySet": "OpenDeliverySet",
+					"listType": "extended",
+					"sortBy": "Wadat",
+					"sortOrder": "ascending",
+					"selectionAnnotationPath": "com.sap.vocabularies.UI.v1.SelectionVariant#ToDo",
+					"annotationPath": "com.sap.vocabularies.UI.v1.LineItem#ToDo",
+					"identificationAnnotationPath": "com.sap.vocabularies.UI.v1.Identification#deliveryNav",
+					"defaultSpan": {
+						"rows": 3,
+						"cols": 1
+					}
+				},
+				"model": "mainModel"
+			}
+		}
+	},
+	"sap.fiori": {
+		"registrationIds": [],
+		"archeType": "analytical"
+	}
+}
