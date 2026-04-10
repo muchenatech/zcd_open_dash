@@ -206,6 +206,21 @@
 					}
 				},
 				"model": "mainModel"
+			},
+			"cardSlotCount": {
+				"model": "mainModel",
+				"template": "sap.ovp.cards.table",
+				"settings": {
+					"title": "Today Slot Order Count",
+					"entitySet": "SlotCountSet",
+					"sortBy": "Slot",
+					"sortOrder": "ascending",
+					"annotationPath": "com.sap.vocabularies.UI.v1.LineItem",
+					"defaultSpan": {
+						"rows": 5,
+						"cols": 2
+					}
+				}
 			}
 		}
 	},
