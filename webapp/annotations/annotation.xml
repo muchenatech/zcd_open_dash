@@ -4,24 +4,6 @@
   xmlns="http://docs.oasis-open.org/odata/ns/edm">
   <edmx:DataServices>
     <Schema Namespace="localAnnotations">
-<!--
-      <Annotations Target="cds_zcdp_open_deliv_srv.OpenDeliverySetType/DeliveryNumber">
-        <Annotation Term="com.sap.vocabularies.Common.v1.SemanticObject" String="custdel"/>
-         <Annotation Term="com.sap.vocabularies.Common.v1.SemanticObjectUnavailableActions">
-          <Collection>
-            <String>clickcollect</String>
-            <String>orders</String>
-            <String>orderret</String>
-            <String>orderdon</String>
-            <String>create</String>
-            <String>manage</String>
-            <String>picking</String>
-            <String>packing</String>
-            <String>display</String>
-          </Collection>
-        </Annotation>
-      </Annotations>
--->
       <Annotations Target="cds_zcdp_open_deliv_srv.OpenDeliverySetType">
 
         <Annotation Term="com.sap.vocabularies.UI.v1.Identification" Qualifier="deliveryNav">
