@@ -133,12 +133,12 @@
 		"showBasicSearch": true,
 		"cards": {
 			"cardBreached": {
-				"template": "sap.ovp.cards.table",
+				"template": "sap.ovp.cards.list",
 				"settings": {
 					"title": "Breached",
 					"subTitle": "Action required now",
 					"entitySet": "OpenDeliverySet",
-					"listType": "condensed",
+					"listType": "extended",
 					"sortBy": "DelWindowStart",
 					"sortOrder": "ascending",
 					"selectionAnnotationPath": "com.sap.vocabularies.UI.v1.SelectionVariant#Breached",
