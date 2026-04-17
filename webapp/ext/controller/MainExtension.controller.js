@@ -9,75 +9,152 @@ sap.ui.define([], function () {
         3. Picking:    everything else (default)
     ----------------------------------------------------------------------*/
     function _resolveAction(oEntity) {
-        if (oEntity.Locked            === "X" ||
+        if (oEntity.Locked === "X" ||
             oEntity.RandomMngApproval === "X" ||
-            oEntity.AwaitingIbt       === "X") {
+            oEntity.AwaitingIbt === "X") {
             return "manage";
         }
-        if (oEntity.PickFinalized  === "X" ||
+        if (oEntity.PickFinalized === "X" ||
             oEntity.PackingStarted === "X") {
             return "packing";
         }
         return "picking";
     }
 
-    return {
-
-        /*------------------------------------------------------------------
-          modifyStartupExtension
-          Fires after OVP fully initialises — expands SmartFilterBar.
-        ------------------------------------------------------------------*/
-        modifyStartupExtension: function (oCustomSelectionVariant) {
-            const oSFB = this.oGlobalFilter;
-            if (oSFB && typeof oSFB.setFilterBarExpanded === "function") {
-                oSFB.setFilterBarExpanded(true);
+    /*----------------------------------------------------------------------
+      Private: schedule a recurring model refresh every iSeconds seconds.
+      Calls oModel.refresh(true) which re-fires all bound OData requests,
+      updating all card data simultaneously.
+    ----------------------------------------------------------------------*/
+    function _scheduleRefresh(oModel, iSeconds) {
+        if (!oModel || iSeconds <= 0) {
+            return;
+        }
+        setInterval(function () {
+            try {
+                oModel.refresh(true);
+            } catch (e) {
+                // Non-fatal: card data updates on the next tick.
             }
-            return oCustomSelectionVariant;
+        }, iSeconds * 1000);
+    }
+
+    /*----------------------------------------------------------------------
+      Private: read REFRESH interval from ZCONSTANTS via DashboardConfig.
+      Falls back to 60 seconds if read fails or returns no data.
+    ----------------------------------------------------------------------*/
+    function _startAutoRefresh(oModel) {
+        if (!oModel) {
+            return;
+        }
+
+        let iDefaultSeconds = 60;
+
+        _scheduleRefresh(oModel, iDefaultSeconds);
+
+        oModel.read("/DashboardConfigSet", {
+            filters: [
+                new sap.ui.model.Filter("FieldName", "EQ", "REFRESH")
+            ],
+            success: function (oData) {
+                let iSeconds = iDefaultSeconds;
+                const aResults = (oData && oData.results) || [];
+                if (aResults.length > 0) {
+                    const iParsed = parseInt(aResults[0].FieldValue, 10);
+                    if (!isNaN(iParsed) && iParsed > 0) {
+                        iSeconds = iParsed;
+                    }
+                }
+                _scheduleRefresh(oModel, iSeconds);
+            },
+            error: function () {
+                _scheduleRefresh(oModel, iDefaultSeconds);
+            }
+        });
+    }
+
+    function _applyStartupLogicOnce() {
+        if (this._bStartupApplied) {
+            return;
+        }
+        this._bStartupApplied = true;
+
+        let oSFB = this.oGlobalFilter;
+        if (oSFB && typeof oSFB.setFilterBarExpanded === "function") {
+            oSFB.setFilterBarExpanded(true);
+        }
+
+        const oModel = this.getView ? this.getView().getModel("mainModel") : null;
+        _startAutoRefresh(oModel || sap.ui.getCore().getModel("mainModel"));
+    }
+
+    function _handleStartupExtension(oCustomSelectionVariant) {
+        _applyStartupLogicOnce.call(this);
+
+        return oCustomSelectionVariant;
+    }
+
+    function _handleNavigation(sCardId, oContext) {
+        if (!oContext) {
+            return;
+        }
+
+        const aDeliveryCards = [
+            "cardBreached", "cardAtRisk", "cardDueNextHour", "cardToDo"
+        ];
+        if (aDeliveryCards.indexOf(sCardId) === -1) {
+            return;
+        }
+
+        const oEntity = oContext.getProperty(oContext.sPath);
+        if (!oEntity) {
+            return;
+        }
+
+        const sAction = _resolveAction(oEntity);
+
+        return {
+            type: "com.sap.vocabularies.UI.v1.DataFieldForIntentBasedNavigation",
+            semanticObject: "custdel",
+            action: sAction,
+            url: "",
+            label: ""
+        };
+    }
+
+    return {
+        onAfterRendering: function () {
+            // Guaranteed app lifecycle hook for OVP main controller extension.
+            // Use this for "run on app launch" behavior.
+            _applyStartupLogicOnce.call(this);
         },
 
         /*------------------------------------------------------------------
-          doCustomNavigation
-          Called by OVP on every card row/header click BEFORE navigation
-          fires. Return a navigation entry object to override the default,
-          or return nothing (undefined) to use the default.
+          Legacy OVP hook.
+        ------------------------------------------------------------------*/
+        modifyStartupExtension: function (oCustomSelectionVariant) {
+            return _handleStartupExtension.call(this, oCustomSelectionVariant);
+        },
 
-          IMPORTANT:
-          - Use oContext.sPath (not getPath()) — confirmed in SAP docs
-          - Return nothing for non-delivery cards and header clicks
-          - Common.SemanticObject must NOT be on DeliveryNumber in
-            annotation.xml — that triggers a SmartLink disambiguation
-            popup instead of calling this function
+        /*------------------------------------------------------------------
+          Newer OVP hook used on current S/4HANA stacks.
+        ------------------------------------------------------------------*/
+        provideStartupExtension: function (oCustomSelectionVariant) {
+            return _handleStartupExtension.call(this, oCustomSelectionVariant);
+        },
+
+        /*------------------------------------------------------------------
+          Legacy OVP navigation hook.
         ------------------------------------------------------------------*/
         doCustomNavigation: function (sCardId, oContext, oNavigationEntry) {
+            return _handleNavigation(sCardId, oContext, oNavigationEntry);
+        },
 
-            // Header click (no row context) — use annotation default
-            if (!oContext) {
-                return;
-            }
-
-            // Only route the four delivery cards
-            const aDeliveryCards = [
-                "cardBreached", "cardAtRisk", "cardDueNextHour", "cardToDo"
-            ];
-            if (aDeliveryCards.indexOf(sCardId) === -1) {
-                return;
-            }
-
-            // Read entity from context using sPath (confirmed correct by SAP docs)
-            const oEntity = oContext.getProperty(oContext.sPath);
-            if (!oEntity) {
-                return;
-            }
-
-            const sAction = _resolveAction(oEntity);
-
-            return {
-                type:           "com.sap.vocabularies.UI.v1.DataFieldForIntentBasedNavigation",
-                semanticObject: "custdel",
-                action:         sAction,
-                url:            "",   // required by OVP even for intent navigation
-                label:          ""    // optional
-            };
+        /*------------------------------------------------------------------
+          Newer OVP navigation hook.
+        ------------------------------------------------------------------*/
+        provideExtensionNavigation: function (sCardId, oContext, oNavigationEntry) {
+            return _handleNavigation(sCardId, oContext, oNavigationEntry);
         }
 
     };

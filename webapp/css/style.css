@@ -1,0 +1,39 @@
+/* Breached */
+[id$='cardBreached'] .sapOvpCardHeader .sapOvpCardTitle,
+[id$='cardBreached'] .sapOvpCardHeader .sapMText,
+[id$='cardBreached'] .sapOvpCardHeader .sapMLnk {
+    color: #bb0000 !important;
+    font-weight: 700 !important;
+}
+
+/* At Risk */
+[id$='cardAtRisk'] .sapOvpCardHeader .sapOvpCardTitle,
+[id$='cardAtRisk'] .sapOvpCardHeader .sapMText,
+[id$='cardAtRisk'] .sapOvpCardHeader .sapMLnk {
+    color: #e9730c !important;
+    font-weight: 700 !important;
+}
+
+/* Due Next Hour */
+[id$='cardDueNextHour'] .sapOvpCardHeader .sapOvpCardTitle,
+[id$='cardDueNextHour'] .sapOvpCardHeader .sapMText,
+[id$='cardDueNextHour'] .sapOvpCardHeader .sapMLnk {
+    color: #f2c200 !important;
+    font-weight: 700 !important;
+}
+
+/* To Do */
+[id$='cardToDo'] .sapOvpCardHeader .sapOvpCardTitle,
+[id$='cardToDo'] .sapOvpCardHeader .sapMText,
+[id$='cardToDo'] .sapOvpCardHeader .sapMLnk {
+    color: #107e3e !important;
+    font-weight: 700 !important;
+}
+
+/* Slot Count */
+[id$='cardSlotCount'] .sapOvpCardHeader .sapOvpCardTitle,
+[id$='cardSlotCount'] .sapOvpCardHeader .sapMText,
+[id$='cardSlotCount'] .sapOvpCardHeader .sapMLnk {
+    color: #0a6ed1 !important;
+    font-weight: 700 !important;
+} 

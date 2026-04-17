@@ -106,7 +106,9 @@
 			}
 		},
 		"resources": {
-			"css": []
+			"css": [{
+                    "uri": "css/style.css"
+                }]
 		},
 		"routing": {
 			"config": {},
@@ -128,6 +130,7 @@
 		"globalFilterModel": "mainModel",
 		"globalFilterEntitySet": "OpenDeliverySet",
 		"containerLayout": "resizable",
+		"flexEnabled": false,
 		"enableLiveFilter": false,
 		"considerAnalyticalParameters": false,
 		"showBasicSearch": true,
@@ -152,11 +155,11 @@
 				"model": "mainModel"
 			},
 			"cardAtRisk": {
-				"template": "sap.ovp.cards.table",
+				"template": "sap.ovp.cards.list",
 				"settings": {
 					"title": "At Risk",
 					"entitySet": "OpenDeliverySet",
-					"listType": "condensed",
+					"listType": "extended",
 					"sortBy": "DelWindowStart",
 					"sortOrder": "ascending",
 					"selectionAnnotationPath": "com.sap.vocabularies.UI.v1.SelectionVariant#AtRisk",
@@ -171,7 +174,7 @@
 				"model": "mainModel"
 			},
 			"cardDueNextHour": {
-				"template": "sap.ovp.cards.table",
+				"template": "sap.ovp.cards.list",
 				"settings": {
 					"title": "Due Next Hour",
 					"entitySet": "OpenDeliverySet",
@@ -190,7 +193,7 @@
 				"model": "mainModel"
 			},
 			"cardToDo": {
-				"template": "sap.ovp.cards.table",
+				"template": "sap.ovp.cards.list",
 				"settings": {
 					"title": "To Do",
 					"entitySet": "OpenDeliverySet",
