@@ -4,6 +4,7 @@ define table function zcds_cdp_slot_count_tf
 returns {
   mandt           : mandt;
   slot            : abap.char(20);
+  slot_sort_key   : abap.char(6);
   delivery_count  : abap.int4;
   breached_count  : abap.int4;
   atrisk_count    : abap.int4;
