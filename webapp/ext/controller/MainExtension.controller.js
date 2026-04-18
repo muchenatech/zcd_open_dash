@@ -9,8 +9,7 @@ sap.ui.define([], function () {
         3. Picking:    everything else (default)
     ----------------------------------------------------------------------*/
     function _resolveAction(oEntity) {
-        if (oEntity.Locked === "X" ||
-            oEntity.RandomMngApproval === "X" ||
+        if (oEntity.RandomMngApproval === "X" ||
             oEntity.AwaitingIbt === "X") {
             return "manage";
         }
