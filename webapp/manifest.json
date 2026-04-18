@@ -41,6 +41,10 @@
 					"localUri": "localService/mainService/metadata.xml",
 					"odataVersion": "2.0"
 				}
+			},
+			"gwuser": {
+				"uri": "/sap/opu/odata/sap/ZGW_USER_SRV/",
+				"type": "OData"
 			}
 		}
 	},
@@ -99,6 +103,11 @@
 						"sap-value-list": "none"
 					}
 				}
+			},
+			"user": {
+				"type": "sap.ui.model.odata.v2.ODataModel",
+				"dataSource": "gwuser",
+				"preload": false
 			},
 			"@i18n": {
 				"type": "sap.ui.model.resource.ResourceModel",

@@ -37,3 +37,8 @@
     color: #0a6ed1 !important;
     font-weight: 700 !important;
 } 
+
+/* Make list content scrollable */
+.sapOvpCardContent {
+    overflow-y: auto !important;
+}

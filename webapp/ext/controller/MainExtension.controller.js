@@ -1,10 +1,15 @@
-sap.ui.define([], function () {
+sap.ui.define([
+    "sap/m/MessageBox"
+], function (MessageBox) {
     "use strict";
+
+    const STORE_ASSIGNMENT_ERROR = "User not assigned to store/site";
+    const USER_PARAM_STORE_ID = "ZSITE";
 
     /*----------------------------------------------------------------------
       Private: resolve which app action based on delivery status flags.
       FDS Section 4 priority order:
-        1. Management: Locked / RandomMngApproval / AwaitingIbt
+        1. Management: RandomMngApproval / AwaitingIbt
         2. Packing:    PickFinalized / PackingStarted
         3. Picking:    everything else (default)
     ----------------------------------------------------------------------*/
@@ -72,6 +77,143 @@ sap.ui.define([], function () {
         });
     }
 
+    function _selectionVariantHasStore(oCustomSelectionVariant) {
+        if (!oCustomSelectionVariant ||
+            typeof oCustomSelectionVariant.getSelectOption !== "function") {
+            return false;
+        }
+
+        const aStoreOptions = oCustomSelectionVariant.getSelectOption("Store");
+        return Array.isArray(aStoreOptions) && aStoreOptions.length > 0;
+    }
+
+    function _applyDefaultStoreToSelectionVariant(oCustomSelectionVariant, sStore) {
+        if (!oCustomSelectionVariant ||
+            typeof oCustomSelectionVariant.addSelectOption !== "function" ||
+            _selectionVariantHasStore(oCustomSelectionVariant)) {
+            return false;
+        }
+
+        if (!sStore || !sStore.trim()) {
+            return false;
+        }
+
+        oCustomSelectionVariant.addSelectOption("Store", "I", "EQ", sStore);
+        return true;
+    }
+
+    function _filterDataHasStore(oFilterData) {
+        if (!oFilterData || !oFilterData.Store) {
+            return false;
+        }
+
+        // String form and token/range form are both considered "set".
+        if (typeof oFilterData.Store === "string") {
+            return oFilterData.Store.trim().length > 0;
+        }
+
+        const aItems = oFilterData.Store.items || [];
+        const aRanges = oFilterData.Store.ranges || [];
+        return aItems.length > 0 || aRanges.length > 0;
+    }
+
+    function _getUserModel(oController) {
+        const oView = oController && typeof oController.getView === "function"
+            ? oController.getView()
+            : null;
+        return (oView && oView.getModel("user")) || sap.ui.getCore().getModel("user");
+    }
+
+    function _showStoreAssignmentErrorOnce(oController) {
+        if (oController && oController._bStoreAssignmentErrorShown) {
+            return;
+        }
+        if (oController) {
+            oController._bStoreAssignmentErrorShown = true;
+        }
+        MessageBox.error(STORE_ASSIGNMENT_ERROR);
+    }
+
+    function _readUserAssignedStore(oController) {
+        if (oController && oController._pUserAssignedStore) {
+            return oController._pUserAssignedStore;
+        }
+
+        const oUserModel = _getUserModel(oController);
+        if (!oUserModel || typeof oUserModel.read !== "function") {
+            return Promise.reject(new Error(STORE_ASSIGNMENT_ERROR));
+        }
+
+        const pAssignedStore = new Promise(function (resolve, reject) {
+            oUserModel.read("/Users('$myself')", {
+                urlParameters: {
+                    "$expand": "Parameters"
+                },
+                success: function (oData) {
+                    const aParams = (((oData || {}).Parameters || {}).results) || [];
+                    const oStoreParam = aParams.find(function (oParam) {
+                        return oParam && oParam.ParameterID === USER_PARAM_STORE_ID;
+                    });
+                    const sAssignedStore = oStoreParam && oStoreParam.ParameterValue;
+                    if (!sAssignedStore || !sAssignedStore.trim()) {
+                        reject(new Error(STORE_ASSIGNMENT_ERROR));
+                        return;
+                    }
+                    resolve(sAssignedStore.trim());
+                },
+                error: function () {
+                    reject(new Error(STORE_ASSIGNMENT_ERROR));
+                }
+            });
+        });
+
+        if (oController) {
+            oController._pUserAssignedStore = pAssignedStore;
+        }
+        return pAssignedStore;
+    }
+
+    function _applyResolvedStoreToFilterBar(oController) {
+        if (!oController || oController._bResolvedStoreAttempted) {
+            return;
+        }
+        oController._bResolvedStoreAttempted = true;
+
+        _readUserAssignedStore(oController).then(function (sStore) {
+            const oSFB = oController.oGlobalFilter;
+            if (!oSFB ||
+                typeof oSFB.getFilterData !== "function" ||
+                typeof oSFB.setFilterData !== "function") {
+                return;
+            }
+
+            const oFilterData = oSFB.getFilterData() || {};
+            const bHasStore = _filterDataHasStore(oFilterData);
+            if (bHasStore) {
+                return;
+            }
+
+            oSFB.setFilterData({
+                Store: {
+                    ranges: [{
+                        exclude: false,
+                        operation: "EQ",
+                        keyField: "Store",
+                        value1: sStore
+                    }]
+                }
+            }, true);
+
+            if (typeof oSFB.search === "function") {
+                oSFB.search();
+            } else if (typeof oSFB.fireSearch === "function") {
+                oSFB.fireSearch();
+            }
+        }).catch(function () {
+            _showStoreAssignmentErrorOnce(oController);
+        });
+    }
+
     function _applyStartupLogicOnce() {
         if (this._bStartupApplied) {
             return;
@@ -82,12 +224,19 @@ sap.ui.define([], function () {
         if (oSFB && typeof oSFB.setFilterBarExpanded === "function") {
             oSFB.setFilterBarExpanded(true);
         }
+        _applyResolvedStoreToFilterBar(this);
 
         const oModel = this.getView ? this.getView().getModel("mainModel") : null;
         _startAutoRefresh(oModel || sap.ui.getCore().getModel("mainModel"));
     }
 
     function _handleStartupExtension(oCustomSelectionVariant) {
+        const oController = this;
+        _readUserAssignedStore(oController).then(function (sStore) {
+            _applyDefaultStoreToSelectionVariant(oCustomSelectionVariant, sStore);
+        }).catch(function () {
+            _showStoreAssignmentErrorOnce(oController);
+        });
         _applyStartupLogicOnce.call(this);
 
         return oCustomSelectionVariant;
