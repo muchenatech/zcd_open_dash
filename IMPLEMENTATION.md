@@ -24,10 +24,12 @@ next step until the checklist passes.
 | Metadata Extension | `ZCDS_CDP_C_OPEN_DELIV` | DDLX | UI line item and navigation annotations |
 | Store Value Help | `ZCDS_CDP_STORE_VH` | CDS View Entity | Site dropdown in SmartFilterBar |
 | Shipping Point VH | `ZCDS_CDP_VSTEL_VH` | CDS View Entity | Shipping Point dropdown |
+| Slot Assigned VH | `ZCDS_CDP_HAS_SLOT_VH` | CDS View Entity | Slot assignment dropdown |
 | Slot Count TF | `ZCDS_CDP_SLOT_COUNT_TF` | CDS Table Function | Bridges slot count method to CDS layer — implemented in `ZCL_CDP_OPEN_DELIV_AMDP` |
 | Slot Count View | `ZCDS_CDP_C_SLOT_COUNT` | CDS View Entity | OData entity for card 5 slot summary |
 | Slot Count DDLX | `ZCDS_CDP_C_SLOT_COUNT` | DDLX | UI annotations for slot count card |
-| Service Definition | `ZCDP_OPEN_DELIV_SRV_DEF` | CDS | Exposes all 5 entities as OData sets |
+| Dashboard Config View | `ZCDS_CDP_DASHBOARD_CONFIG` | CDS View Entity | Exposes dashboard constants from `ZCONSTANTS` |
+| Service Definition | `ZCDP_OPEN_DELIV_SRV_DEF` | CDS | Exposes all entities as OData sets |
 | Service Binding | `ZCDP_OPEN_DELIV_BIND` | OData V2 UI | Publishes `ZCDP_OPEN_DELIV_SRV` |
 | Controller Extension | `MainExtension.controller.js` | JS | Expands SmartFilterBar on page load |
 | Fiori App | `ZCDPOPENDASH` | Fiori Tools | OVP app with 5 cards + row navigation |
@@ -108,8 +110,8 @@ without any code change:
 
 ```
 ZCONSTANTS: CONST_TYPE='DASHBOARD', FIELD_NAME='LEADTIMES'
-  FIELD_VALUE='BREACH' → DESCRIPTION = breach threshold in minutes  (e.g. 17)
-  FIELD_VALUE='RISK'   → DESCRIPTION = risk window in minutes       (e.g. 20)
+  FIELD_VALUE='BREACH' ? DESCRIPTION = breach threshold in minutes  (e.g. 17)
+  FIELD_VALUE='RISK'   ? DESCRIPTION = risk window in minutes       (e.g. 20)
   At Risk combined     = BREACH + RISK                              (e.g. 37)
 ```
 
@@ -129,48 +131,76 @@ Priority order — first matching rule wins:
 
 ```abap
 CLASS zcl_cdp_open_deliv_amdp DEFINITION
-  PUBLIC FINAL CREATE PUBLIC.
+  PUBLIC
+  FINAL
+  CREATE PUBLIC .
+
   PUBLIC SECTION.
   INTERFACES if_amdp_marker_hdb.
-  CLASS-METHODS get_open_deliveries_tf
-    FOR TABLE FUNCTION zcds_cdp_open_deliv_tf.
+
+  CLASS-METHODS get_open_deliveries_tf FOR TABLE FUNCTION zcds_cdp_open_deliv_tf.
+  CLASS-METHODS get_slot_counts FOR TABLE FUNCTION zcds_cdp_slot_count_tf.
   PROTECTED SECTION.
   PRIVATE SECTION.
 ENDCLASS.
+
+
 
 CLASS zcl_cdp_open_deliv_amdp IMPLEMENTATION.
   METHOD get_open_deliveries_tf BY DATABASE FUNCTION FOR HDB
     LANGUAGE SQLSCRIPT
     OPTIONS READ-ONLY
-    USING likp lips vbak t001w tvls tvakt
-          zconstants zcdp_shippt zcdp_ordtypes zcdp_ddellock.
+    USING likp lips vbak t001w  tvls tvakt zconstants
+          zcdp_shippt zcdp_ordtypes zcdp_ddellock.
 
-    /*-- STEP 0: Read lead times from ZCONSTANTS --*/
     DECLARE lv_breach_mins INTEGER DEFAULT 17;
     DECLARE lv_atrisk_mins INTEGER DEFAULT 37;
 
     SELECT
-        COALESCE( MAX( CASE WHEN field_value = 'BREACH'
-                       THEN TO_INTEGER( description ) END ), 17 ),
-        COALESCE( MAX( CASE WHEN field_value = 'BREACH'
-                       THEN TO_INTEGER( description ) END ), 17 )
-        + COALESCE( MAX( CASE WHEN field_value = 'RISK'
-                       THEN TO_INTEGER( description ) END ), 20 )
+        COALESCE(
+          MAX( CASE
+                 WHEN field_value = 'BREACH'
+                 THEN TO_INTEGER( description )
+               END ), 17 ),
+        COALESCE(
+          MAX( CASE
+                 WHEN field_value = 'BREACH'
+                 THEN TO_INTEGER( description )
+               END ), 17 )
+        +
+        COALESCE(
+          MAX( CASE
+                 WHEN field_value = 'RISK'
+                 THEN TO_INTEGER( description )
+               END ), 20 )
       INTO lv_breach_mins, lv_atrisk_mins
       FROM zconstants
-    WHERE const_type = 'DASHBOARD'
-      AND field_name = 'LEADTIMES';
+  WHERE const_type = 'DASHBOARD'
+    AND field_name = 'LEADTIMES';
 
-    /*-- STEP 1: Base delivery data with status flags --*/
-    lt_base = SELECT
-        likp.mandt, likp.vbeln, likp.vstel, likp.wadat, likp.bolnr,
-        likp.kostk, likp.wbstk, likp.pkstk, likp.lifsk,
-        vbak.ihrez, lips.werks,
+      lt_base = SELECT
+        likp.mandt,
+        likp.vbeln,
+        likp.vstel,
+        likp.wadat,
+        likp.erdat,
+        likp.erzet,
+        likp.bolnr,
+        likp.kostk,
+        likp.wbstk,
+        likp.pkstk,
+        likp.lifsk,
+
+        vbak.ihrez,
+        lips.werks,
         t1.name1                                              AS werks_name,
         vbak.vbeln                                            AS vbeln_au,
-        vbak.auart, vbak.kunnr, tvakt.bezei,
+        vbak.auart,
+        vbak.kunnr,
+        tvakt.bezei,
         lck.uname                                             AS lock_user,
-        lck.timestamp                                         AS lock_timestamp,
+        lck.timestamp as lock_timestamp,
+
         CASE WHEN lck.uname IS NULL THEN '' ELSE 'X' END      AS locked,
         CASE likp.lifsk WHEN 'OH' THEN 'X' ELSE '' END        AS on_hold,
         CASE likp.lifsk WHEN 'ZR' THEN 'X' ELSE '' END        AS random_mng_approval,
@@ -183,56 +213,26 @@ CLASS zcl_cdp_open_deliv_amdp IMPLEMENTATION.
         CASE likp.lifsk WHEN 'Z0' THEN 'X' ELSE '' END        AS pick_finalized,
         CASE likp.lifsk WHEN 'Z1' THEN 'X' ELSE '' END        AS finalized,
         CASE likp.lifsk WHEN 'Z2' THEN 'X' ELSE '' END        AS awaiting_ibt,
+
+        -- Uniform status code (domain ZCDP_DOM_CUST_DEL_STATE, values 0-A)
         CASE
-          WHEN likp.lifsk = 'OH' THEN '8'  WHEN likp.lifsk = 'ZR' THEN '9'
-          WHEN likp.lifsk = 'ZE' THEN 'A'  WHEN likp.wbstk = 'C'  THEN '6'
-          WHEN lck.uname IS NOT NULL THEN '1'
-          WHEN likp.lifsk = 'Z1' THEN '5'  WHEN likp.lifsk = 'Z2' THEN '7'
-          WHEN likp.pkstk IN ('B','D','C') THEN '4'
-          WHEN likp.lifsk = 'Z0' THEN '3'  WHEN likp.kostk = 'B'  THEN '2'
-          ELSE '0'
-        END AS status,
-        vbak.del_window_start, vbak.del_window_end
-      FROM likp
-      INNER JOIN zcdp_shippt ON zcdp_shippt.vstel = likp.vstel
-      INNER JOIN lips ON lips.vbeln = likp.vbeln AND lips.pstyv <> 'YTAX'
-      INNER JOIN vbak ON vbak.vbeln = lips.vgbel
-      INNER JOIN zcdp_ordtypes ON zcdp_ordtypes.auart = vbak.auart
-      LEFT OUTER JOIN t001w AS t1 ON t1.werks = lips.werks
-      LEFT OUTER JOIN tvls ON tvls.lifsp = likp.lifsk
-      LEFT OUTER JOIN tvakt ON tvakt.auart = vbak.auart
-        AND tvakt.spras = SESSION_CONTEXT('LOCALE_SAP')
-      LEFT OUTER JOIN zcdp_ddellock AS lck ON lck.vbeln = likp.vbeln
-      GROUP BY
-        likp.mandt, likp.vbeln, likp.vstel, likp.wadat, likp.bolnr,
-        likp.kostk, likp.wbstk, likp.pkstk, likp.lifsk, likp.lifex,
-        vbak.ihrez, lips.werks, t1.name1, vbak.vbeln, vbak.auart,
-        vbak.kunnr, tvakt.bezei, lck.uname, lck.timestamp,
-        vbak.del_window_start, vbak.del_window_end;
+          WHEN likp.lifsk = 'OH'             THEN '8' -- 'On Hold'
+          WHEN likp.lifsk = 'ZR'             THEN '9' -- 'Random mng_approval'
+          WHEN likp.lifsk = 'ZE'             THEN 'A' -- 'Refunds mng approval'
+          WHEN likp.wbstk = 'C'             THEN '6' -- 'Fully Packed'
+          WHEN lck.uname  IS NOT NULL        THEN '1' -- 'Locked'
+          WHEN likp.lifsk = 'Z1'             THEN '5' -- 'Finalized'
+          WHEN likp.lifsk = 'Z2'             THEN '7' -- 'Awaiting IBT'
+          WHEN likp.pkstk IN ('B','D')   THEN '4' -- 'Packing Started'
+          WHEN likp.lifsk = 'Z0'             THEN '3'
+          WHEN likp.kostk = 'B'             THEN '2'
+          ELSE                                    '0'
+        END                                                   AS status,
 
-    /*-- STEP 2: Exclude fully packed and finalized --*/
-    lt_open = SELECT * FROM :lt_base
-               WHERE fully_packed = '' AND finalized = '';
-
-    /*-- STEP 3: Normalise del_window_start and build slot timestamp
-       DEL_WINDOW_START arrives as 'HH:MM' (5 chars with colon) from SAPABAP.
-       RPAD+REPLACE strips colon, pads to 6-digit HHMMSS.
-       ADD_SECONDS(TO_DATE(wadat), secs) avoids HANA sqladd/longdate errors. --*/
-    lt_normalised = SELECT
-        mandt, vbeln, werks, werks_name, vstel, vbeln_au, auart, kunnr, ihrez,
-        bolnr, wadat, del_window_end, status, lifsk, pkstk, kostk, wbstk,
-        locked, lock_user, lock_timestamp, on_hold, picking_started,
-        fully_picked, packing_started, fully_packed, fully_issued,
-        pick_finalized, finalized, awaiting_ibt, random_mng_approval,
-        refunds_mng_approval, del_window_start,
+        vbak.del_window_start,
+        vbak.del_window_end,
         RPAD( REPLACE( del_window_start, ':', '' ), 6, '0' ) AS dws_norm,
-        CASE
-          WHEN RPAD( REPLACE( del_window_start,':','' ),6,'0' ) IS NOT NULL
-           AND RPAD( REPLACE( del_window_start,':','' ),6,'0' ) <> '000000'
-           AND RPAD( REPLACE( del_window_start,':','' ),6,'0' ) <> ''
-          THEN 'X' ELSE ''
-        END AS has_slot,
-        -- slot_ts: NVARCHAR(14) YYYYMMDDHHMMSS built by string concat
+
         CASE
           WHEN RPAD( REPLACE( del_window_start, ':', '' ), 6, '0' ) <> '000000'
            AND RPAD( REPLACE( del_window_start, ':', '' ), 6, '0' ) IS NOT NULL
@@ -243,36 +243,253 @@ CLASS zcl_cdp_open_deliv_amdp IMPLEMENTATION.
                AS NVARCHAR(14) )
           ELSE NULL
         END AS slot_ts
+
+        FROM likp
+
+      INNER JOIN zcdp_shippt                                   -- registered shipping points only
+        ON  zcdp_shippt.vstel = likp.vstel
+
+      INNER JOIN lips
+        ON  lips.vbeln  = likp.vbeln
+        AND lips.pstyv <> 'YTAX'                              -- replicates zcds_delivery WHERE
+
+      INNER JOIN vbak
+        ON  vbak.vbeln  = lips.vgbel
+
+      INNER JOIN zcdp_ordtypes                                 -- registered order types only
+        ON  zcdp_ordtypes.auart = vbak.auart
+
+      LEFT OUTER JOIN t001w AS t1
+        ON  t1.werks    = lips.werks
+
+      LEFT OUTER JOIN tvls
+        ON  tvls.lifsp  = likp.lifsk
+
+      LEFT OUTER JOIN tvakt
+        ON  tvakt.auart = vbak.auart
+        AND tvakt.spras = SESSION_CONTEXT('LOCALE_SAP')
+
+      LEFT OUTER JOIN zcdp_ddellock AS lck
+        ON  lck.vbeln   = likp.vbeln
+
+     WHERE lips.wbsta <> 'C'  --- likp.wadat >= ADD_DAYS( CURRENT_DATE, -200 )
+     AND lips.vgtyp = 'C'
+      GROUP BY likp.mandt,                                                -- mirrors zcds_delivery GROUP BY
+        likp.vbeln, likp.vstel, likp.wadat, likp.erdat,
+        likp.erzet, likp.bolnr,
+        likp.kostk, likp.wbstk, likp.pkstk, likp.lifsk, likp.lifex,
+        vbak.ihrez, lips.werks, t1.name1, vbak.vbeln, vbak.auart,
+        vbak.kunnr, tvakt.bezei, lck.uname, lck.timestamp,
+        vbak.del_window_start, vbak.del_window_end;
+
+      lt_open = SELECT * FROM :lt_base
+               WHERE fully_packed = ''
+                 AND finalized    = '';
+
+     lt_normalised = SELECT mandt,
+        vbeln, werks, werks_name, vstel, vbeln_au, auart, kunnr, ihrez,
+         bolnr, wadat, del_window_end, erdat, erzet, status, lifsk, pkstk, kostk,
+        wbstk, locked, lock_user, lock_timestamp, on_hold, picking_started,
+        fully_picked, packing_started, fully_packed, fully_issued,
+        pick_finalized, finalized, awaiting_ibt, random_mng_approval,
+        refunds_mng_approval,
+
+        -- Original value for OData display only — not used in calculations
+        del_window_start,
+
+        -- dws_norm: pure 6-digit HHMMSS, colons stripped, padded to 6
+        RPAD( REPLACE( del_window_start, ':', '' ), 6, '0' ) AS dws_norm,
+
+        -- has_slot computed once here to avoid repeating in RETURN SELECT
+        -- has_slot
+*        CASE
+*          WHEN RPAD( REPLACE( del_window_start, ':', '' ), 6, '0' ) IS NULL
+*           OR ( RPAD( REPLACE( del_window_start, ':', '' ), 6, '0' ) = '000000'
+*           OR RPAD( REPLACE( del_window_start, ':', '' ), 6, '0' ) = ''
+*           OR del_window_start IS NULL
+*           OR del_window_start = ''
+*           OR del_window_start = '000000'
+*          THEN '' ELSE 'X'
+*        END AS has_slot,
+         CASE
+          WHEN RPAD( REPLACE( del_window_start,':','' ),6,'0' ) IS NOT NULL
+           AND RPAD( REPLACE( del_window_start,':','' ),6,'0' ) <> '000000'
+           AND RPAD( REPLACE( del_window_start,':','' ),6,'0' ) <> ''
+          THEN 'X' ELSE ''
+        END AS has_slot,
+
+        -- slot_ts: HANA TIMESTAMP built from DATS date + integer seconds
+        -- TO_DATE(wadat)  — single-arg, no format string, no longdate path
+        -- ADD_SECONDS(DATE, INT) — pure arithmetic → TIMESTAMP
+        CASE
+          WHEN RPAD( REPLACE( del_window_start, ':', '' ), 6, '0' ) IS NOT NULL
+           AND RPAD( REPLACE( del_window_start, ':', '' ), 6, '0' ) <> '000000'
+           AND RPAD( REPLACE( del_window_start, ':', '' ), 6, '0' ) <> ''
+          THEN ADD_SECONDS(
+                 TO_DATE( wadat ),
+                 TO_INTEGER( SUBSTRING( RPAD( REPLACE( del_window_start,':','' ),6,'0' ), 1, 2 ) ) * 3600
+               + TO_INTEGER( SUBSTRING( RPAD( REPLACE( del_window_start,':','' ),6,'0' ), 3, 2 ) ) * 60
+               )
+          ELSE NULL
+        END AS slot_ts,
+
+              -- erdat_ts: TIMESTAMP from delivery creation date + creation time
+        -- Used for ZOLC breach logic: ERDAT < today OR (ERDAT = today AND age > 2 hours)
+        ADD_SECONDS(
+          TO_DATE( erdat ),
+          TO_INTEGER( SUBSTRING( RPAD( REPLACE( erzet, ':', '' ), 6, '0' ), 1, 2 ) ) * 3600
+        + TO_INTEGER( SUBSTRING( RPAD( REPLACE( erzet, ':', '' ), 6, '0' ), 3, 2 ) ) * 60
+        + TO_INTEGER( SUBSTRING( RPAD( REPLACE( erzet, ':', '' ), 6, '0' ), 5, 2 ) )
+        ) AS erdat_ts
+
       FROM :lt_open;
 
-    /*-- STEP 4: Risk bucket computation per FDS priority order --*/
+     /*==================================================================
+      STEP 3  Risk bucket computation + RETURN
+      HANA SECONDS_BETWEEN( NOW(), slot_timestamp ) gives signed minutes.
+      Negative = slot already past = BREACHED.
+
+      Slot timestamp: wadat (YYYYMMDD) concatenated with del_window_start (HHMMSS).
+
+      Priority order (highest wins):
+        1. Management holds (OH/ZR/ZE)   TODO (parked, not at risk)
+        2. No slot + past wadat           BREACHED
+        3. No slot + future/today wadat   TODO
+        4. Has slot: threshold minutes    BREACHED / ATRISK / DUENEXTHOUR / TODO
+    ==================================================================*/
+
     RETURN
-      SELECT mandt, vbeln, werks, werks_name, vstel, vbeln_au, auart, kunnr,
-             ihrez, bolnr, wadat, del_window_start, del_window_end, status,
-             lifsk, pkstk, kostk, wbstk, locked, lock_user, lock_timestamp,
-             on_hold, picking_started, fully_picked, packing_started,
-             fully_packed, fully_issued, pick_finalized, finalized,
-             awaiting_ibt, random_mng_approval, refunds_mng_approval,
-             has_slot,
-          CASE WHEN slot_ts IS NOT NULL
-               THEN CAST( SECONDS_BETWEEN( NOW(), slot_ts ) / 60 AS INTEGER )
-               ELSE NULL END AS minutes_to_slot,
-          -- risk_bucket: first matching WHEN wins
+      SELECT mandt,
+          vbeln,
+          werks,
+          werks_name,
+          vstel,
+          vbeln_au,
+          auart,
+          kunnr,
+          ihrez,
+          bolnr,
+          wadat,
+          SUBSTRING(TO_NVARCHAR(wadat), 7, 2) || '.' ||   -- DD
+            SUBSTRING(TO_NVARCHAR(wadat), 5, 2) || '.' ||   -- MM
+            SUBSTRING(TO_NVARCHAR(wadat), 1, 4)              -- YYYY
+            AS wadatDisplay,
+          del_window_start,
+          del_window_end,
+          status,
           CASE
-            WHEN lifsk IN ('OH','ZR','ZE')                             THEN 'TODO'
+            WHEN lifsk = 'OH'           THEN 'On Hold'
+            WHEN lifsk = 'ZR'           THEN 'Random Mng Approval'
+            WHEN lifsk = 'ZE'           THEN 'Refunds Mng Approval'
+            WHEN wbstk = 'C'            THEN 'Fully Issued'
+            WHEN lock_user IS NOT NULL
+             AND lock_user <> ''        THEN 'Picking Locked by User ' || lock_user
+            WHEN lifsk = 'Z1'           THEN 'Finalised'
+            WHEN lifsk = 'Z2'           THEN 'Awaiting IBT'
+            WHEN pkstk IN ('B','D') THEN 'Packing Started'
+            WHEN lifsk = 'Z0'           THEN 'Pick Finalised'
+            WHEN kostk = 'B'            THEN 'Picking Started'
+            ELSE                             'Awaiting Picking'
+          END AS statusText,
+          lifsk,
+          pkstk,
+          kostk,
+          wbstk,
+          locked,
+          lock_user,
+          lock_timestamp,
+
+          on_hold,
+          picking_started,
+          fully_picked,
+          packing_started,
+          fully_packed,
+          fully_issued,
+          pick_finalized,
+          finalized,
+          awaiting_ibt,
+          random_mng_approval,
+          refunds_mng_approval,
+
+          CASE
+              WHEN del_window_start IS NOT NULL
+               AND del_window_start <> ''
+               AND del_window_start <> '00:00'
+              THEN del_window_start || ' - ' || del_window_end
+              ELSE ''
+            END AS slotDisplay,
+
+
+
+          -- has_slot: check normalised value for zero guard
+*          CASE
+*            WHEN dws_norm IS NOT NULL
+*             AND dws_norm <> '000000'
+*             AND dws_norm <> ''         THEN 'X'
+*            ELSE                             ''
+*          END AS has_slot,
+          has_slot,
+
+          -- minutes_to_slot: signed integer. Negative = past slot. NULL = no slot.
+           CASE
+            WHEN slot_ts IS NOT NULL
+            THEN CAST( SECONDS_BETWEEN( NOW(), slot_ts ) / 60 AS INTEGER )
+            ELSE NULL
+          END AS minutes_to_slot,
+
+          -- risk_bucket
+         CASE
+            -- Management holds: always TODO regardless of slot/date
+            WHEN lifsk IN ('OH','ZR','ZE')
+              THEN 'TODO'
+
+            -- Priority 2: No slot + ZOLC shipping point (collection orders)
+            -- FDS: breached if erdat < today, OR erdat = today AND age > 2 hours
+            -- FDS: all remaining ZOLC no-slot deliveries = ATRISK
+            WHEN has_slot <> 'X' AND vstel = 'ZOLC'
+              THEN CASE
+                     WHEN erdat < CURRENT_DATE
+                       THEN 'BREACHED'
+                     WHEN erdat = CURRENT_DATE
+                      AND SECONDS_BETWEEN( erdat_ts, NOW() ) / 3600 >= 2
+                       THEN 'BREACHED'
+                     ELSE 'ATRISK'
+                   END
+
+           -- Priority 3: No slot + other shipping points
+            -- Breached if GI date < system date - 2 days
             WHEN has_slot <> 'X'
-              THEN CASE WHEN wadat < ADD_DAYS( CURRENT_DATE,-2 )
-                        THEN 'BREACHED' ELSE 'TODO' END
-            WHEN wadat < CURRENT_DATE                                  THEN 'BREACHED'
-            WHEN wadat > CURRENT_DATE                                  THEN 'TODO'
-            WHEN SECONDS_BETWEEN(NOW(),slot_ts)/60 <= :lv_breach_mins THEN 'BREACHED'
-            WHEN SECONDS_BETWEEN(NOW(),slot_ts)/60 <= :lv_atrisk_mins THEN 'ATRISK'
-            WHEN TO_INTEGER(SUBSTRING(dws_norm,1,2))
-                 = HOUR(ADD_SECONDS(NOW(),3600))                       THEN 'DUENEXTHOUR'
-            ELSE                                                            'TODO'
+              THEN CASE
+                     WHEN wadat < ADD_DAYS( CURRENT_DATE, -2 ) THEN 'BREACHED'
+                     ELSE 'TODO'
+                   END
+
+            -- Priority 4: Has slot + delivery date already past
+            WHEN has_slot = 'X' AND wadat < CURRENT_DATE
+              THEN 'BREACHED'
+
+            -- Priority 5: Has slot + future delivery date
+            WHEN has_slot = 'X' AND wadat > CURRENT_DATE
+              THEN 'TODO'
+
+            -- Has slot, today: minute-level thresholds
+            -- Breached: now is within breach lead time of slot start
+            WHEN has_slot = 'X' AND SECONDS_BETWEEN( NOW(), slot_ts ) / 60 <= :lv_breach_mins
+              THEN 'BREACHED'
+
+            -- At Risk: now is within combined lead time but outside breach window
+            WHEN SECONDS_BETWEEN( NOW(), slot_ts ) / 60 <= :lv_atrisk_mins
+              THEN 'ATRISK'
+
+            -- Due Next Hour: slot falls in the next whole clock hour
+            WHEN TO_INTEGER( SUBSTRING( dws_norm, 1, 2 ) )
+                 = HOUR( ADD_SECONDS( NOW(), 3600 ) )
+              THEN 'DUENEXTHOUR'
+
+            ELSE 'TODO'
           END AS risk_bucket,
+
           -- risk_criticality: 1=Red  2=Orange  3=Yellow  5=Green
-          -- Note: uses hardcoded thresholds (0/20/60 mins) not ZCONSTANTS values
           CASE
             WHEN lifsk IN ('OH','ZR','ZE')  THEN 5
             WHEN slot_ts IS NULL
@@ -282,9 +499,109 @@ CLASS zcl_cdp_open_deliv_amdp IMPLEMENTATION.
             WHEN SECONDS_BETWEEN( NOW(), slot_ts ) / 60 <= 60  THEN 3
             ELSE                                                     5
           END AS risk_criticality
-        FROM :lt_normalised;
+          FROM :lt_normalised;
+         --where has_slot  = 'X';
+
 
   ENDMETHOD.
+
+  METHOD get_slot_counts BY DATABASE FUNCTION FOR HDB
+    LANGUAGE SQLSCRIPT
+    OPTIONS READ-ONLY
+    USING likp lips vbak zconstants zcdp_shippt zcdp_ordtypes.
+
+    DECLARE lv_breach_mins INTEGER DEFAULT 17;
+    DECLARE lv_atrisk_mins INTEGER DEFAULT 37;
+
+    SELECT
+        COALESCE(
+          MAX( CASE
+                 WHEN field_value = 'BREACH'
+                 THEN TO_INTEGER( description )
+               END ), 17 ),
+        COALESCE(
+          MAX( CASE
+                 WHEN field_value = 'BREACH'
+                 THEN TO_INTEGER( description )
+               END ), 17 )
+        +
+        COALESCE(
+          MAX( CASE
+                 WHEN field_value = 'RISK'
+                 THEN TO_INTEGER( description )
+               END ), 20 )
+      INTO lv_breach_mins, lv_atrisk_mins
+      FROM zconstants
+    WHERE const_type = 'DASHBOARD'
+    AND field_name = 'LEADTIMES';
+
+    /*-- All deliveries for today with slots --*/
+    lt_today = SELECT
+        likp.mandt, lips.werks, likp.vstel, likp.vbeln,
+        vbak.del_window_start, vbak.del_window_end,likp.lifsk, likp.wadat,
+        RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) AS dws_norm,
+        CASE
+          WHEN RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) IS NOT NULL
+           AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> '000000'
+           AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> ''
+          THEN ADD_SECONDS(
+                 TO_DATE( likp.wadat ),
+                 TO_INTEGER( SUBSTRING( RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ),1,2 ) ) * 3600
+               + TO_INTEGER( SUBSTRING( RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ),3,2 ) ) * 60 )
+          ELSE NULL
+        END AS slot_ts,
+        CASE
+          WHEN RPAD( REPLACE( del_window_start,':','' ),6,'0' ) IS NOT NULL
+           AND RPAD( REPLACE( del_window_start,':','' ),6,'0' ) <> '000000'
+           AND RPAD( REPLACE( del_window_start,':','' ),6,'0' ) <> ''
+          THEN 'X' ELSE ''
+        END AS has_slot
+      FROM likp
+      INNER JOIN zcdp_shippt ON zcdp_shippt.vstel = likp.vstel
+      INNER JOIN lips ON lips.vbeln = likp.vbeln AND lips.pstyv <> 'YTAX'
+      INNER JOIN vbak ON vbak.vbeln = lips.vgbel
+        AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> '000000'
+        AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) IS NOT NULL
+        AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> ''
+      INNER JOIN zcdp_ordtypes ON zcdp_ordtypes.auart = vbak.auart
+      WHERE likp.wadat = CURRENT_DATE   --- >= ADD_DAYS( CURRENT_DATE, -200 )
+        AND likp.pkstk <> 'C'
+        AND likp.lifsk <> 'Z1'
+
+      GROUP BY likp.mandt, lips.werks, likp.vstel, likp.vbeln,
+               vbak.del_window_start, vbak.del_window_end, likp.lifsk, likp.wadat;
+
+    /*--Compute risk bucket per delivery --*/
+    lt_bucketed = SELECT
+        mandt, werks, vstel, del_window_start, dws_norm,
+        concat(del_window_start, ' - ' || del_window_end) as slot,
+        CASE
+          WHEN lifsk IN ('OH','ZR','ZE')                              THEN 'TODO'
+          WHEN slot_ts IS NULL                                        THEN 'TODO'
+          WHEN wadat < CURRENT_DATE                                   THEN 'BREACHED'
+          WHEN SECONDS_BETWEEN(NOW(),slot_ts)/60 <= :lv_breach_mins  THEN 'BREACHED'
+          WHEN SECONDS_BETWEEN(NOW(),slot_ts)/60 <= :lv_atrisk_mins  THEN 'ATRISK'
+          WHEN TO_INTEGER(SUBSTRING(dws_norm,1,2))
+               = HOUR(ADD_SECONDS(NOW(),3600))                        THEN 'DUENEXTHOUR'
+          ELSE                                                              'TODO'
+        END AS risk_bucket
+      FROM :lt_today
+      WHERE has_slot = 'X';
+
+    /*--Aggregate by slot start time --*/
+    RETURN
+      SELECT mandt,
+          slot,                        --concat(del_window_start, ' - ' || del_window_end) as slot,
+          COUNT(*)                                        AS delivery_count,
+          SUM(CASE WHEN risk_bucket = 'BREACHED' THEN 1 ELSE 0 END) AS breached_count,
+          SUM(CASE WHEN risk_bucket = 'ATRISK'   THEN 1 ELSE 0 END) AS atrisk_count
+        FROM :lt_bucketed
+        GROUP BY mandt, slot
+        ORDER BY slot;
+
+
+  ENDMETHOD.
+
 ENDCLASS.
 ```
 
@@ -302,10 +619,9 @@ ENDCLASS.
 ```cds
 @EndUserText.label: 'Open deliveries table function'
 @ClientHandling.type: #CLIENT_INDEPENDENT
-
 define table function zcds_cdp_open_deliv_tf
 returns {
-  mandt                : mandt;
+  mandt               : mandt;
   vbeln                : vbeln_vl;
   werks                : werks_d;
   werks_name           : name1;
@@ -316,9 +632,11 @@ returns {
   ihrez                : ihrez;
   bolnr                : bolnr;
   wadat                : wadat;
-  del_window_start     : zzwindow_start;
-  del_window_end       : zzwindow_end;
+  wadatDisplay         : abap.char(10);
+  del_window_start     : abap.char(8);   --zzwindow_start;
+  del_window_end       : abap.char(8); --zzwindow_end;
   status               : abap.char(1);
+  statusText           : abap.char(60);
   lifsk                : lifsk;
   pkstk                : pkstk;
   kostk                : kostk;
@@ -337,13 +655,14 @@ returns {
   awaiting_ibt         : abap.char(1);
   random_mng_approval  : abap.char(1);
   refunds_mng_approval : abap.char(1);
+  slotDisplay          : abap.char(20);
   has_slot             : abap.char(1);
   minutes_to_slot      : abap.int4;
   risk_bucket          : abap.char(20);
   risk_criticality     : abap.int1;
+  
 }
-implemented by method
-  zcl_cdp_open_deliv_amdp=>get_open_deliveries_tf;
+implemented by method zcl_cdp_open_deliv_amdp=>get_open_deliveries_tf;
 ```
 
 **Checklist:**
@@ -360,26 +679,24 @@ implemented by method
 @AbapCatalog.viewEnhancementCategory: [#NONE]
 @AccessControl.authorizationCheck: #NOT_REQUIRED
 @EndUserText.label: 'Store Value Help'
-@ObjectModel.resultSet.sizeCategory: #XS
-@ObjectModel.usageType: { serviceQuality: #X, sizeCategory: #S, dataClass: #MIXED }
-
+@Metadata.ignorePropagatedAnnotations: true
+@ObjectModel.usageType:{
+    serviceQuality: #X,
+    sizeCategory: #S,
+    dataClass: #MIXED
+}
 define view entity zcds_cdp_store_vh as select from t001w
 {
-  @ObjectModel.text.element: ['StoreName']
-  @UI.textArrangement: #TEXT_ONLY
-  @Search.defaultSearchElement: true
-  @Search.fuzzinessThreshold: 0.8
-  @Search.ranking: #HIGH
-  @UI.selectionField: [{ position: 10 }]
-  @UI.lineItem:       [{ position: 10 }]
-  key werks                                       as Store,
-
-  @Semantics.text: true
-  @Search.defaultSearchElement: true
-  @Search.fuzzinessThreshold: 0.8
-  @Search.ranking: #HIGH
-  @UI.lineItem: [{ position: 20 }]
-  cast( name1 as werks_name preserving type )     as StoreName
+    @ObjectModel.text.element: ['StoreName']
+      @Search.defaultSearchElement: true
+      @Search.fuzzinessThreshold: 0.8
+      @Search.ranking: #HIGH
+  key werks                                      as Store,
+      @Semantics.text: true
+      @Search.defaultSearchElement: true
+      @Search.fuzzinessThreshold: 0.8
+      @Search.ranking: #HIGH
+      cast(name1 as werks_name preserving type ) as StoreName
 }
 ```
 
@@ -392,36 +709,64 @@ define view entity zcds_cdp_store_vh as select from t001w
 @AbapCatalog.viewEnhancementCategory: [#NONE]
 @AccessControl.authorizationCheck: #NOT_REQUIRED
 @EndUserText.label: 'Shipping point value help'
+@Metadata.ignorePropagatedAnnotations: true
+@ObjectModel.usageType:{
+    serviceQuality: #X,
+    sizeCategory: #S,
+    dataClass: #MIXED
+}
+define view entity ZCDS_CDP_VSTEL_VH
+  as select from zcdp_shippt as a
+    inner join   tvstt       as b on a.vstel = b.vstel
+{
+      @ObjectModel.text.element: ['vtext']
+      @UI.textArrangement: #TEXT_ONLY
+      @Search.defaultSearchElement: true
+      @Search.fuzzinessThreshold: 0.8
+      @Search.ranking: #HIGH
+  key a.vstel as Vstel,
+
+      @Semantics.text: true
+      @Search.defaultSearchElement: true
+      @Search.fuzzinessThreshold: 0.8
+      @Search.ranking: #HIGH
+      b.vtext
+}
+where
+  b.spras = 'E'
+```
+
+### ZCDS_CDP_HAS_SLOT_VH
+
+```cds
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Slot Assigned value help'
 @ObjectModel.resultSet.sizeCategory: #XS
 @ObjectModel.usageType: { serviceQuality: #X, sizeCategory: #S, dataClass: #MIXED }
 
-define view entity zcds_cdp_vstel_vh
-  as select from zcdp_shippt as a
-  inner join tvstt as b on a.vstel = b.vstel
+define view entity zcds_cdp_has_slot_vh
+  as select distinct from zconstants
 {
-  @ObjectModel.text.element: ['vtext']
+  @ObjectModel.text.element: ['HasSlotText']
   @UI.textArrangement: #TEXT_ONLY
-  @Search.defaultSearchElement: true
-  @Search.fuzzinessThreshold: 0.8
-  @Search.ranking: #HIGH
-  @UI.selectionField: [{ position: 10 }]
-  @UI.lineItem:       [{ position: 10 }]
-  key a.vstel                                     as Vstel,
+  @UI.lineItem: [{ position: 10 }]
+  
+  key  case when sequence = '001' then 'X' else '' end as HasSlot,
 
   @Semantics.text: true
-  @Search.defaultSearchElement: true
-  @Search.fuzzinessThreshold: 0.8
-  @Search.ranking: #HIGH
   @UI.lineItem: [{ position: 20 }]
-  b.vtext
+  
+    case when sequence = '001' then 'With Slot' else 'Without Slot' end as HasSlotText
 }
-where b.spras = 'E'
+where const_type = 'DASHBOARD'
+  and field_name = 'LEADTIMES'
+  and sequence  <= '002'
 ```
 
 **Checklist:**
-- [ ] Both views activate without errors
-- [ ] `@ObjectModel.resultSet.sizeCategory: #XS` is at header level, outside `usageType` block
-- [ ] No `@Metadata.ignorePropagatedAnnotations: true` on either view
+- [ ] All three value help views activate without errors
+- [ ] `zcds_cdp_c_open_deliv` uses these exact names in `@Consumption.valueHelpDefinition`
 
 ---
 
@@ -435,66 +780,64 @@ where b.spras = 'E'
 ```cds
 @AbapCatalog.viewEnhancementCategory: [#NONE]
 @AccessControl.authorizationCheck: #NOT_REQUIRED
-@EndUserText.label: 'Open deliveries - consumption view'
+@EndUserText.label: 'Open deliveries  - consumption view'
 @Metadata.allowExtensions: true
-@ObjectModel.usageType: { serviceQuality: #X, sizeCategory: #S, dataClass: #MIXED }
-
-define view entity zcds_cdp_c_open_deliv
-  as select from zcds_cdp_open_deliv_tf
+@ObjectModel.usageType:{
+    serviceQuality: #X,
+    sizeCategory: #S,
+    dataClass: #MIXED
+}
+define view entity zcds_cdp_c_open_deliv as select from zcds_cdp_open_deliv_tf
 {
-  key vbeln                   as DeliveryNumber,
-
-  @UI.selectionField: [{ position: 10 }]
-  @Consumption.valueHelpDefinition: [{
-    entity:            { name: 'ZCDS_CDP_STORE_VH', element: 'Store' },
-    useForValidation:  true,
-    additionalBinding: [{ localElement: 'StoreName', element: 'StoreName' }]
-  }]
-  werks                       as Store,
-  werks_name                  as StoreName,
-
-  @UI.selectionField: [{ position: 20 }]
-  @Consumption.valueHelpDefinition: [{
-    entity:           { name: 'ZCDS_CDP_VSTEL_VH', element: 'Vstel' },
-    useForValidation: true
-  }]
-  vstel                       as Vstel,
-
-  @UI.selectionField: [{ position: 30 }]
-  @EndUserText.label: 'Order Type'
-  auart                       as Auart,
-
-  vbeln_au                    as OrderNumber,
-  kunnr                       as Kunnr,
-  ihrez                       as Ihrez,
-  bolnr                       as Bolnr,
-  wadat                       as Wadat,
-  @Semantics.time: true
-  del_window_start            as DelWindowStart,
-  @Semantics.time: true
-  del_window_end              as DelWindowEnd,
-  status                      as Status,
-  lifsk                       as Lifsk,
-  pkstk                       as Pkstk,
-  kostk                       as Kostk,
-  wbstk                       as Wbstk,
-  locked                      as Locked,
-  lock_user                   as LockUser,
-  lock_timestamp              as LockTimestamp,
-  on_hold                     as OnHold,
-  picking_started             as PickingStarted,
-  fully_picked                as FullyPicked,
-  packing_started             as PackingStarted,
-  fully_packed                as FullyPacked,
-  fully_issued                as FullyIssued,
-  pick_finalized              as PickFinalized,
-  awaiting_ibt                as AwaitingIbt,
-  random_mng_approval         as RandomMngApproval,
-  refunds_mng_approval        as RefundsMngApproval,
-  has_slot                    as HasSlot,
-  risk_bucket                 as RiskBucket,
-  risk_criticality            as RiskCriticality,
-  minutes_to_slot             as MinutesToSlot
+    key vbeln                   as DeliveryNumber,
+      @UI.selectionField: [{ position: 10 }]
+      @Consumption.valueHelpDefinition: [{ entity: { name: 'ZCDS_CDP_STORE_VH', element: 'Store' } }]
+      werks                   as Store,
+      werks_name              as StoreName,
+      
+      @UI.selectionField: [{ position: 20 }]
+      @Consumption.valueHelpDefinition: [{ entity: { name: 'ZCDS_CDP_VSTEL_VH', element: 'Vstel' } }]
+      vstel                   as Vstel,
+      
+      @UI.selectionField: [{ position: 30 }]
+      @Consumption.valueHelpDefinition: [{ entity: { name: 'ZCDS_CDP_HAS_SLOT_VH', element: 'HasSlot' } }]
+      has_slot                as HasSlot,
+      
+      vbeln_au                as OrderNumber,
+      auart                   as Auart,
+      kunnr                   as Kunnr,
+      ihrez                   as Ihrez,
+      bolnr                   as Bolnr,
+      wadat                   as Wadat,
+      wadatDisplay            as WadatDisplay,
+      --@Semantics.time: true
+      del_window_start        as DelWindowStart,
+      --@Semantics.time: true
+      del_window_end          as DelWindowEnd,
+      status                  as Status,
+      statusText              as StatusText,
+      lifsk                   as Lifsk,
+      pkstk                   as Pkstk,
+      kostk                   as Kostk,
+      wbstk                   as Wbstk,
+      locked                  as Locked,
+      lock_user               as LockUser,
+      lock_timestamp          as LockTimestamp,
+      on_hold                 as OnHold,
+      picking_started         as PickingStarted,
+      fully_picked            as FullyPicked,
+      packing_started         as PackingStarted,
+      fully_packed            as FullyPacked,
+      fully_issued            as FullyIssued,
+      pick_finalized          as PickFinalized,
+      awaiting_ibt            as AwaitingIbt,
+      random_mng_approval     as RandomMngApproval,
+      refunds_mng_approval    as RefundsMngApproval,
+      slotDisplay             as SlotDisplay,
+      
+      risk_bucket             as RiskBucket,
+      risk_criticality        as RiskCriticality,
+      minutes_to_slot         as MinutesToSlot
 }
 ```
 
@@ -529,59 +872,55 @@ define view entity zcds_cdp_c_open_deliv
   { qualifier: 'DueNextHour' },
   { qualifier: 'ToDo'        }
 ]
-annotate view zcds_cdp_c_open_deliv with
+annotate view zcds_cdp_c_open_deliv
+    with 
 {
-  @UI.lineItem: [
+    @UI.lineItem: [
     { qualifier: 'Breached',    position: 10, value: 'DeliveryNumber', label: 'Delivery'    },
-    { qualifier: 'Breached',    position: 20, value: 'Wadat',          label: 'Del. Date'   },
-    { qualifier: 'Breached',    position: 30, value: 'DelWindowStart', label: 'Slot Start'  },
-    { qualifier: 'Breached',    position: 40, value: 'DelWindowEnd',   label: 'Slot End'    },
-    { qualifier: 'Breached',    position: 50, value: 'Status',         label: 'Status',
-      criticality: 'RiskCriticality', criticalityRepresentation: #WITHOUT_ICON              },
-    { qualifier: 'Breached',    position: 60, value: 'MinutesToSlot',  label: 'Mins to Slot'},
-    { qualifier: 'AtRisk',      position: 10, value: 'DeliveryNumber'                       },
-    { qualifier: 'AtRisk',      position: 20, value: 'StoreName'                            },
-    { qualifier: 'AtRisk',      position: 30, value: 'DelWindowStart', label: 'Slot Start'  },
-    { qualifier: 'AtRisk',      position: 40, value: 'MinutesToSlot',  label: 'Mins to Slot'},
+    { qualifier: 'Breached',    position: 20, value: 'StatusText',   label: 'Status',
+      criticality: 'RiskCriticality', criticalityRepresentation: #WITHOUT_ICON              },  
+    { qualifier: 'Breached',    position: 30, value: 'SlotDisplay', label: 'Slot'  },
+    { qualifier: 'Breached',    position: 40, value: 'WadatDisplay',      label: 'Del. Date'       },
+    
+    { qualifier: 'AtRisk',    position: 10, value: 'DeliveryNumber', label: 'Delivery'    },
+    { qualifier: 'AtRisk',    position: 20, value: 'StatusText',   label: 'Status',
+      criticality: 'RiskCriticality', criticalityRepresentation: #WITHOUT_ICON              },  
+    { qualifier: 'AtRisk',    position: 30, value: 'SlotDisplay', label: 'Slot'  },
+    { qualifier: 'AtRisk',    position: 40, value: 'WadatDisplay',      label: 'Del. Date'       },
     { qualifier: 'DueNextHour', position: 10, value: 'DeliveryNumber'                       },
     { qualifier: 'DueNextHour', position: 20, value: 'StoreName'                            },
     { qualifier: 'DueNextHour', position: 30, value: 'DelWindowStart', label: 'Slot Start'  },
     { qualifier: 'DueNextHour', position: 40, value: 'MinutesToSlot',  label: 'Mins to Slot'},
     { qualifier: 'ToDo',        position: 10, value: 'DeliveryNumber'                       },
-    { qualifier: 'ToDo',        position: 20, value: 'Wadat',          label: 'Del. Date'   },
+    { qualifier: 'ToDo',        position: 20, value: 'Wadat',          label: 'Del. Date'     },
     { qualifier: 'ToDo',        position: 30, value: 'DelWindowStart', label: 'Slot Start'  },
-    { qualifier: 'ToDo',        position: 40, value: 'DelWindowEnd',   label: 'Slot End'    },
-    { qualifier: 'ToDo',        position: 50, value: 'Status',         label: 'Status',
+    { qualifier: 'ToDo',        position: 40, value: 'DelWindowEnd', label: 'Slot End'  },
+    { qualifier: 'ToDo',        position: 50, value: 'StatusText',         label: 'Status',
       criticality: 'RiskCriticality', criticalityRepresentation: #WITHOUT_ICON              }
+    
   ]
-  // Navigation is handled entirely by doCustomNavigation in MainExtension.controller.js
-  // and UI.Identification#deliveryNav in annotation.xml.
-  //
-  // DO NOT add @UI.identification with semanticObjectAction here.
-  // That generates Common.SemanticObject on DeliveryNumber in the backend VAN
-  // annotation file, which renders delivery numbers as SmartLink hyperlinks
-  // and shows a disambiguation popup instead of calling doCustomNavigation.
-  @EndUserText.label: 'Delivery'
+ 
   DeliveryNumber;
 
-  // Store and Vstel: only minimal annotations here.
-  // @UI.selectionField + @Consumption.valueHelpDefinition stay in the DDL.
-  @UI.lineItem: [{ position: 20, qualifier: 'All' }]
+  @UI.lineItem: [{ position: 10, qualifier: 'All' }]
   @UI.identification: [{ position: 10 }]
+  @EndUserText.label: 'Store'
   Store;
-
-  @EndUserText.label: 'Shipping Point'
+  
+  @EndUserText.label: 'Fullfillment Via'
   Vstel;
 
-  @UI.lineItem: [{ position: 50, qualifier: 'All',
+  @UI.lineItem: [{ position: 20, qualifier: 'All',
     criticality: 'RiskCriticality', criticalityRepresentation: #WITHOUT_ICON }]
   RiskBucket;
 
-  @UI.lineItem: [{ position: 60 }]
+  @UI.lineItem: [{ position: 30, qualifier: 'All' }]
+  @UI.identification: [{ position: 10 }]
+  @EndUserText.label: 'Slot Assigned'
   HasSlot;
-
+ 
   @UI.lineItem: [{ position: 70 }]
-  MinutesToSlot;
+  MinutesToSlot;   
 }
 ```
 
@@ -619,82 +958,101 @@ Then add the implementation:
 
 ```abap
 METHOD get_slot_counts BY DATABASE FUNCTION FOR HDB
-  LANGUAGE SQLSCRIPT
-  OPTIONS READ-ONLY
-  USING likp lips vbak zconstants zcdp_shippt zcdp_ordtypes.
+    LANGUAGE SQLSCRIPT
+    OPTIONS READ-ONLY
+    USING likp lips vbak zconstants zcdp_shippt zcdp_ordtypes.
 
-  DECLARE lv_breach_mins INTEGER DEFAULT 17;
-  DECLARE lv_atrisk_mins INTEGER DEFAULT 37;
+    DECLARE lv_breach_mins INTEGER DEFAULT 17;
+    DECLARE lv_atrisk_mins INTEGER DEFAULT 37;
 
-  SELECT
-      COALESCE( MAX( CASE WHEN field_value = 'BREACH'
-                     THEN TO_INTEGER( description ) END ), 17 ),
-      COALESCE( MAX( CASE WHEN field_value = 'BREACH'
-                     THEN TO_INTEGER( description ) END ), 17 )
-      + COALESCE( MAX( CASE WHEN field_value = 'RISK'
-                     THEN TO_INTEGER( description ) END ), 20 )
-    INTO lv_breach_mins, lv_atrisk_mins
-    FROM zconstants
-  WHERE const_type = 'DASHBOARD'
+    SELECT
+        COALESCE(
+          MAX( CASE
+                 WHEN field_value = 'BREACH'
+                 THEN TO_INTEGER( description )
+               END ), 17 ),
+        COALESCE(
+          MAX( CASE
+                 WHEN field_value = 'BREACH'
+                 THEN TO_INTEGER( description )
+               END ), 17 )
+        +
+        COALESCE(
+          MAX( CASE
+                 WHEN field_value = 'RISK'
+                 THEN TO_INTEGER( description )
+               END ), 20 )
+      INTO lv_breach_mins, lv_atrisk_mins
+      FROM zconstants
+    WHERE const_type = 'DASHBOARD'
     AND field_name = 'LEADTIMES';
 
-  /*-- All deliveries with slots (lookback 200 days, not yet fully packed/finalised) --*/
-  lt_today = SELECT
-      likp.mandt, lips.werks, likp.vstel, likp.vbeln,
-      vbak.del_window_start, vbak.del_window_end, likp.lifsk, likp.wadat,
-      RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) AS dws_norm,
-      CASE
-        WHEN RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) IS NOT NULL
-         AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> '000000'
-         AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> ''
-        THEN ADD_SECONDS(
-               TO_DATE( likp.wadat ),
-               TO_INTEGER( SUBSTRING( RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ),1,2 ) ) * 3600
-             + TO_INTEGER( SUBSTRING( RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ),3,2 ) ) * 60 )
-        ELSE NULL
-      END AS slot_ts
-    FROM likp
-    INNER JOIN zcdp_shippt ON zcdp_shippt.vstel = likp.vstel
-    INNER JOIN lips ON lips.vbeln = likp.vbeln AND lips.pstyv <> 'YTAX'
-    INNER JOIN vbak ON vbak.vbeln = lips.vgbel
-      AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> '000000'
-      AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) IS NOT NULL
-      AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> ''
-    INNER JOIN zcdp_ordtypes ON zcdp_ordtypes.auart = vbak.auart
-    WHERE likp.wadat >= ADD_DAYS( CURRENT_DATE, -200 )
-      AND likp.pkstk <> 'C'
-      AND likp.lifsk <> 'Z1'
-    GROUP BY likp.mandt, lips.werks, likp.vstel, likp.vbeln,
-             vbak.del_window_start, vbak.del_window_end, likp.lifsk, likp.wadat;
+    /*-- All deliveries for today with slots --*/
+    lt_today = SELECT
+        likp.mandt, lips.werks, likp.vstel, likp.vbeln,
+        vbak.del_window_start, vbak.del_window_end,likp.lifsk, likp.wadat,
+        RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) AS dws_norm,
+        CASE
+          WHEN RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) IS NOT NULL
+           AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> '000000'
+           AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> ''
+          THEN ADD_SECONDS(
+                 TO_DATE( likp.wadat ),
+                 TO_INTEGER( SUBSTRING( RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ),1,2 ) ) * 3600
+               + TO_INTEGER( SUBSTRING( RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ),3,2 ) ) * 60 )
+          ELSE NULL
+        END AS slot_ts,
+        CASE
+          WHEN RPAD( REPLACE( del_window_start,':','' ),6,'0' ) IS NOT NULL
+           AND RPAD( REPLACE( del_window_start,':','' ),6,'0' ) <> '000000'
+           AND RPAD( REPLACE( del_window_start,':','' ),6,'0' ) <> ''
+          THEN 'X' ELSE ''
+        END AS has_slot
+      FROM likp
+      INNER JOIN zcdp_shippt ON zcdp_shippt.vstel = likp.vstel
+      INNER JOIN lips ON lips.vbeln = likp.vbeln AND lips.pstyv <> 'YTAX'
+      INNER JOIN vbak ON vbak.vbeln = lips.vgbel
+        AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> '000000'
+        AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) IS NOT NULL
+        AND RPAD( REPLACE( vbak.del_window_start,':','' ),6,'0' ) <> ''
+      INNER JOIN zcdp_ordtypes ON zcdp_ordtypes.auart = vbak.auart
+      WHERE likp.wadat = CURRENT_DATE   --- >= ADD_DAYS( CURRENT_DATE, -200 )
+        AND likp.pkstk <> 'C'
+        AND likp.lifsk <> 'Z1'
 
-  /*-- Risk bucket per delivery --*/
-  lt_bucketed = SELECT
-      mandt, werks, vstel, del_window_start, dws_norm,
-      concat( del_window_start, ' - ' || del_window_end ) AS slot,
-      CASE
-        WHEN lifsk IN ('OH','ZR','ZE')                             THEN 'TODO'
-        WHEN slot_ts IS NULL                                       THEN 'TODO'
-        WHEN wadat < CURRENT_DATE                                  THEN 'BREACHED'
-        WHEN SECONDS_BETWEEN(NOW(),slot_ts)/60 <= :lv_breach_mins THEN 'BREACHED'
-        WHEN SECONDS_BETWEEN(NOW(),slot_ts)/60 <= :lv_atrisk_mins THEN 'ATRISK'
-        WHEN TO_INTEGER(SUBSTRING(dws_norm,1,2))
-             = HOUR(ADD_SECONDS(NOW(),3600))                       THEN 'DUENEXTHOUR'
-        ELSE                                                            'TODO'
-      END AS risk_bucket
-    FROM :lt_today;
+      GROUP BY likp.mandt, lips.werks, likp.vstel, likp.vbeln,
+               vbak.del_window_start, vbak.del_window_end, likp.lifsk, likp.wadat;
 
-  /*-- Aggregate by slot display string --*/
-  RETURN
-    SELECT mandt,
-        slot,
-        COUNT(*)                                        AS delivery_count,
-        SUM(CASE WHEN risk_bucket = 'BREACHED' THEN 1 ELSE 0 END) AS breached_count,
-        SUM(CASE WHEN risk_bucket = 'ATRISK'   THEN 1 ELSE 0 END) AS atrisk_count
-      FROM :lt_bucketed
-      GROUP BY mandt, slot
-      ORDER BY slot;
+    /*--Compute risk bucket per delivery --*/
+    lt_bucketed = SELECT
+        mandt, werks, vstel, del_window_start, dws_norm,
+        concat(del_window_start, ' - ' || del_window_end) as slot,
+        CASE
+          WHEN lifsk IN ('OH','ZR','ZE')                              THEN 'TODO'
+          WHEN slot_ts IS NULL                                        THEN 'TODO'
+          WHEN wadat < CURRENT_DATE                                   THEN 'BREACHED'
+          WHEN SECONDS_BETWEEN(NOW(),slot_ts)/60 <= :lv_breach_mins  THEN 'BREACHED'
+          WHEN SECONDS_BETWEEN(NOW(),slot_ts)/60 <= :lv_atrisk_mins  THEN 'ATRISK'
+          WHEN TO_INTEGER(SUBSTRING(dws_norm,1,2))
+               = HOUR(ADD_SECONDS(NOW(),3600))                        THEN 'DUENEXTHOUR'
+          ELSE                                                              'TODO'
+        END AS risk_bucket
+      FROM :lt_today
+      WHERE has_slot = 'X';
 
-ENDMETHOD.
+    /*--Aggregate by slot start time --*/
+    RETURN
+      SELECT mandt,
+          slot,                        --concat(del_window_start, ' - ' || del_window_end) as slot,
+          COUNT(*)                                        AS delivery_count,
+          SUM(CASE WHEN risk_bucket = 'BREACHED' THEN 1 ELSE 0 END) AS breached_count,
+          SUM(CASE WHEN risk_bucket = 'ATRISK'   THEN 1 ELSE 0 END) AS atrisk_count
+        FROM :lt_bucketed
+        GROUP BY mandt, slot
+        ORDER BY slot;
+
+
+  ENDMETHOD.
 ```
 
 **Checklist:**
@@ -708,8 +1066,8 @@ ENDMETHOD.
 
 > **Implemented by `ZCL_CDP_OPEN_DELIV_AMDP=>GET_SLOT_COUNTS`** — the same class as the
 > main delivery table function. The `slot` field is a concatenated display string
-> (`HH:MM - HH:MM`) produced by the AMDP, typed as `abap.char(14)` to avoid
-> `Edm.Time` serialization errors.
+> (`HH:MM - HH:MM`) produced by the AMDP, typed as `abap.char(20)` as defined in the
+> latest table function object.
 
 ```cds
 @EndUserText.label: 'Slot order count table function'
@@ -717,17 +1075,18 @@ ENDMETHOD.
 define table function zcds_cdp_slot_count_tf
 returns {
   mandt           : mandt;
-  slot            : abap.char(14);  -- 'HH:MM - HH:MM' concat string — NOT zzwindow_start
+  slot            : abap.char(20);
   delivery_count  : abap.int4;
   breached_count  : abap.int4;
   atrisk_count    : abap.int4;
+  
 }
 implemented by method zcl_cdp_open_deliv_amdp=>get_slot_counts;
 ```
 
 **Checklist:**
 - [ ] Activates without errors — "method not found" means `get_slot_counts` not yet added to `ZCL_CDP_OPEN_DELIV_AMDP`
-- [ ] `slot` field is `abap.char(14)` — NOT `zzwindow_start` (which maps to `Edm.Time` causing `XML_CONVERSION_TIME`)
+- [ ] `slot` field is `abap.char(20)` and matches the table function object
 - [ ] Implementor is `zcl_cdp_open_deliv_amdp=>get_slot_counts` (NOT a separate slot count class)
 
 ---
@@ -741,16 +1100,16 @@ implemented by method zcl_cdp_open_deliv_amdp=>get_slot_counts;
 @Metadata.allowExtensions: true
 @ObjectModel.usageType:{
     serviceQuality: #X,
-    sizeCategory:   #S,
-    dataClass:      #MIXED
+    sizeCategory: #S,
+    dataClass: #MIXED
 }
-define view entity zcds_cdp_c_slot_count
+define view entity zcds_cdp_c_slot_count 
   as select from zcds_cdp_slot_count_tf
-{
-    key slot                                        as Slot,
-    delivery_count                                  as DeliveryCount,
-    breached_count                                  as BreachedCount,
-    atrisk_count                                    as AtRiskCount,
+{ 
+  key slot as Slot,
+  delivery_count                                  as DeliveryCount,
+  breached_count                                  as BreachedCount,
+  atrisk_count                                    as AtRiskCount,
 
     -- Red (1) when slot has any breached deliveries, else Green (5)
     case
@@ -764,13 +1123,14 @@ define view entity zcds_cdp_c_slot_count
       else                       cast(5 as abap.int1)
     end                                             as AtRiskCriticality,
 
-    -- Overall row criticality: Red > Amber > Green
-    case
-      when breached_count > 0 then cast(1 as abap.int1)
-      when atrisk_count   > 0 then cast(2 as abap.int1)
-      else                         cast(5 as abap.int1)
-    end                                             as SlotRiskCriticality
-}
+  -- SlotRiskCriticality: 1=Red (has breached), 2=Orange (at risk), 5=Green
+  case
+    when breached_count > 0 then cast(1 as abap.int1)
+    when atrisk_count   > 0 then cast(2 as abap.int1)
+    else                         cast(5 as abap.int1)
+   end as SlotRiskCriticality
+}                                            
+    
 ```
 
 > **Key design points:**
@@ -778,8 +1138,7 @@ define view entity zcds_cdp_c_slot_count
 > - Three separate criticality fields are needed for per-column colouring:
 >   `BreachedCriticality` (red for Breached column), `AtRiskCriticality` (amber for At Risk column),
 >   `SlotRiskCriticality` (overall row colour on # Deliveries column)
-> - `slot_start` typed as `abap.char(5)` in the TF DDL — using `zzwindow_start` maps to `Edm.Time`
->   and causes `XML_CONVERSION_TIME` runtime error during OData serialization
+> - The TF returns a combined `slot` string (`HH:MM - HH:MM`) as `abap.char(20)`
 
 ---
 
@@ -834,17 +1193,40 @@ annotate view zcds_cdp_c_slot_count with
 > `SlotRiskCriticality`) remain in the consumption view in case this becomes supported
 > in a future UI5 version or when migrating to OData V4 (`sap.ovp.cards.v4.table`).
 
+### ZCDS_CDP_DASHBOARD_CONFIG (Used by Service)
+
+```cds
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Dashboard config from ZCONSTANTS'
+@ObjectModel.resultSet.sizeCategory: #XS
+@ObjectModel.usageType: { serviceQuality: #X, sizeCategory: #S, dataClass: #MIXED }
+
+define view entity zcds_cdp_dashboard_config
+  as select from zconstants
+{
+  key const_type  as ConstType,
+  key field_name  as FieldName,
+  key sequence    as Sequence,
+      field_value as FieldValue,
+      description as Description
+}
+where const_type = 'DASHBOARD'
+```
+
 ---
 
 ## Step 10 — Service Definition
 
 ```cds
-@EndUserText.label: 'Open Delivery Dashboard Service'
+@EndUserText.label: 'Open Deliveries'
 define service Zcdp_open_deliv_srv {
-  expose zcds_cdp_c_open_deliv  as OpenDeliverySet;
-  expose zcds_cdp_store_vh      as StoreValueHelp;
-  expose ZCDS_CDP_VSTEL_VH      as ShippingPointHelp;
-  expose zcds_cdp_c_slot_count  as SlotCountSet;
+  expose zcds_cdp_c_open_deliv     as OpenDeliverySet;
+  expose zcds_cdp_store_vh         as StoreValueHelp;
+  expose ZCDS_CDP_VSTEL_VH         as ShippingPointHelp;
+  expose zcds_cdp_has_slot_vh      as SlotValueHelp;
+  expose zcds_cdp_c_slot_count     as SlotCountSet;
+  expose zcds_cdp_dashboard_config as DashboardConfigSet;
 }
 ```
 
@@ -854,7 +1236,7 @@ define service Zcdp_open_deliv_srv {
 
 **Checklist:**
 - [ ] Activates without errors
-- [ ] All four aliases present
+- [ ] All service aliases present
 
 ---
 
@@ -1355,7 +1737,7 @@ FIORI APP
 | VH dialog shows Go button | `@ObjectModel.resultSet.sizeCategory: #XS` missing from VH header | Add as standalone header annotation outside `usageType` block |
 | Service binding blocked | Description field empty | Enter any description text |
 | Card 5 shows no data | `SlotCountSet` missing from service definition, or `get_slot_counts` method not added to `ZCL_CDP_OPEN_DELIV_AMDP` | Add `expose zcds_cdp_c_slot_count as SlotCountSet` to service definition. Add `CLASS-METHODS get_slot_counts FOR TABLE FUNCTION zcds_cdp_slot_count_tf` to the existing `ZCL_CDP_OPEN_DELIV_AMDP` class and activate |
-| `XML_CONVERSION_TIME` / `CX_SY_CONVERSION_NO_DATE_TIME` on SlotCountSet | `slot_start` typed as `zzwindow_start` in the Table Function DDL — this maps to `Edm.Time` and the OData serializer cannot parse `HH:MM` strings as durations | Change `slot_start` to `abap.char(5)` in `ZCDS_CDP_SLOT_COUNT_TF`. Re-activate TF → consumption view → re-publish binding |
+| `XML_CONVERSION_TIME` / `CX_SY_CONVERSION_NO_DATE_TIME` on SlotCountSet | Slot values are typed with a time/domain type that serializes as `Edm.Time` instead of a plain string | Use a character field for slot display in `ZCDS_CDP_SLOT_COUNT_TF` (current object uses `slot : abap.char(20)`). Re-activate TF → consumption view → re-publish binding |
 | Slot count card columns show no colour | Column-level colour coding in OVP table cards on OData V2 is **not supported** via standard annotations. Neither `criticality:` on DataField (silently ignored) nor `type: #AS_DATAPOINT` (causes empty columns) works. The criticality CASE fields remain in the view for future use when migrating to OData V4 | No fix available on OData V2. Migrate card to `sap.ovp.cards.v4.table` for full `DataPoint` criticality support |
 | Delivery rows are not clickable / no navigation on row click | Card template is `sap.ovp.cards.table`. The table card does not support row-level click navigation — `identificationAnnotationPath` is ignored | Change the four delivery cards to `"template": "sap.ovp.cards.list"`. Keep `sap.ovp.cards.table` only for the slot count summary card |
 | Navigation buttons not appearing on row click | `identificationAnnotationPath` missing from card settings, or pointing to wrong qualifier | Add `"identificationAnnotationPath": "com.sap.vocabularies.UI.v1.Identification#deliveryNav"` to each delivery card's `settings` |
@@ -1363,3 +1745,4 @@ FIORI APP
 | Disambiguation popup appears on delivery row click | `Common.SemanticObject` set on `DeliveryNumber` in annotation.xml or generated by `semanticObjectAction` in DDLX — SmartLink intercepts click before `doCustomNavigation` fires | Remove `Common.SemanticObject` from annotation.xml for `DeliveryNumber`. Remove `@UI.identification` with `semanticObjectAction` from the DDLX entirely |
 | Navigation fires but app does not open | Semantic Object `custdel` not registered in Fiori Launchpad | Register target mappings in SPRO: `custdel-manage`, `custdel-picking`, `custdel-packing` |
 | Card header shows a large KPI number instead of data | `dataPointAnnotationPath` set on a list/table card — this renders the DataPoint `Value` field as an aggregated KPI number in the card header body, not as a colour | Remove `dataPointAnnotationPath` from list/table card settings. This property is intended for analytical/chart cards. Card header background colour based on data criticality is not supported on OVP list/table cards via standard OData V2 annotations |
+
