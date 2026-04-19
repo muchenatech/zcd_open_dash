@@ -1,10 +1,12 @@
 sap.ui.define([
-    "sap/m/MessageBox"
-], function (MessageBox) {
+    "sap/m/MessageBox",
+    "sap/ui/model/odata/v2/ODataModel"
+], function (MessageBox, ODataModel) {
     "use strict";
 
     const STORE_ASSIGNMENT_ERROR = "User not assigned to store/site";
     const USER_PARAM_STORE_ID = "ZSITE";
+    const USER_SERVICE_URL = "/sap/opu/odata/sap/ZGW_USER_SRV/";
 
     /*----------------------------------------------------------------------
       Private: resolve which app action based on delivery status flags.
@@ -118,10 +120,37 @@ sap.ui.define([
     }
 
     function _getUserModel(oController) {
+        if (oController && oController._oResolvedUserModel) {
+            return oController._oResolvedUserModel;
+        }
+
         const oView = oController && typeof oController.getView === "function"
             ? oController.getView()
             : null;
-        return (oView && oView.getModel("user")) || sap.ui.getCore().getModel("user");
+        const oOwnerComponent = oController && typeof oController.getOwnerComponent === "function"
+            ? oController.getOwnerComponent()
+            : null;
+
+        const oUserModel =
+            (oView && oView.getModel("user")) ||
+            (oOwnerComponent && oOwnerComponent.getModel("user")) ||
+            sap.ui.getCore().getModel("user");
+
+        if (oUserModel) {
+            if (oController) {
+                oController._oResolvedUserModel = oUserModel;
+            }
+            return oUserModel;
+        }
+
+        // FLP fallback: create user OData model if manifest model isn't attached yet.
+        const oFallbackUserModel = new ODataModel(USER_SERVICE_URL, {
+            useBatch: false
+        });
+        if (oController) {
+            oController._oResolvedUserModel = oFallbackUserModel;
+        }
+        return oFallbackUserModel;
     }
 
     function _showStoreAssignmentErrorOnce(oController) {
