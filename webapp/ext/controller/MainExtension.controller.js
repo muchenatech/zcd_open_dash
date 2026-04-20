@@ -17,6 +17,7 @@ sap.ui.define([
     ----------------------------------------------------------------------*/
     function _resolveAction(oEntity) {
         if (oEntity.RandomMngApproval === "X" ||
+            oEntity.RefundsMngApproval === "X" ||
             oEntity.AwaitingIbt === "X") {
             return "manage";
         }
@@ -247,16 +248,23 @@ sap.ui.define([
         if (this._bStartupApplied) {
             return;
         }
+
+        const oSFB = this.oGlobalFilter;
+        if (!oSFB || typeof oSFB.setFilterBarExpanded !== "function") {
+            // Global filter may not be available on the earliest startup hook.
+            // Keep retrying on later hooks/renders until we can expand it.
+            return;
+        }
+
+        oSFB.setFilterBarExpanded(true);
+        _applyResolvedStoreToFilterBar(this);
         this._bStartupApplied = true;
 
-        let oSFB = this.oGlobalFilter;
-        if (oSFB && typeof oSFB.setFilterBarExpanded === "function") {
-            oSFB.setFilterBarExpanded(true);
+        if (!this._bAutoRefreshStarted) {
+            this._bAutoRefreshStarted = true;
+            const oModel = this.getView ? this.getView().getModel("mainModel") : null;
+            _startAutoRefresh(oModel || sap.ui.getCore().getModel("mainModel"));
         }
-        _applyResolvedStoreToFilterBar(this);
-
-        const oModel = this.getView ? this.getView().getModel("mainModel") : null;
-        _startAutoRefresh(oModel || sap.ui.getCore().getModel("mainModel"));
     }
 
     function _handleStartupExtension(oCustomSelectionVariant) {

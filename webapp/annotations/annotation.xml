@@ -39,6 +39,23 @@
           </Record>
         </Annotation>
 
+        <Annotation Term="com.sap.vocabularies.UI.v1.PresentationVariant" Qualifier="SortingCriteria">
+          <Record Type="com.sap.vocabularies.UI.v1.PresentationVariantType">
+            <PropertyValue Property="SortOrder">
+              <Collection>
+                <Record Type="com.sap.vocabularies.Common.v1.SortOrderType">
+                  <PropertyValue Property="Property" PropertyPath="Wadat"/>
+                  <PropertyValue Property="Descending" Bool="false"/>
+                </Record>
+                <Record Type="com.sap.vocabularies.Common.v1.SortOrderType">
+                  <PropertyValue Property="Property" PropertyPath="DelWindowStart"/>
+                  <PropertyValue Property="Descending" Bool="false"/>
+                </Record>
+              </Collection>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+
         <Annotation Term="com.sap.vocabularies.UI.v1.SelectionVariant" Qualifier="AtRisk">
           <Record>
             <PropertyValue Property="SelectOptions">
